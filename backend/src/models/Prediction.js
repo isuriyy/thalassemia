@@ -6,9 +6,15 @@ const PredictionSchema = new mongoose.Schema({
         ref:      'User',
         required: true
     },
-    patientId: { type: String, default: 'Anonymous' },
-    age:       { type: Number },
-    sex:       { type: String, enum: ['Male', 'Female', 'Other'] },
+    patientId:     { type: String,  default: 'Anonymous' },
+    age:           { type: Number },
+    sex:           { type: String,  enum: ['Male', 'Female', 'Other'] },
+
+    // ── NEW FIELDS ──────────────────────────────────────────
+    district:      { type: String,  default: null },
+    isPregnant:    { type: Boolean, default: false },
+    familyHistory: { type: Boolean, default: false },
+    // ────────────────────────────────────────────────────────
 
     cbcParams: {
         MCV: Number,
@@ -16,7 +22,6 @@ const PredictionSchema = new mongoose.Schema({
         HBG: Number,
         RBC: Number
     },
-
     derivedFeatures: {
         england_fraser: Number,
         green_king:     Number,
@@ -25,21 +30,18 @@ const PredictionSchema = new mongoose.Schema({
         srivastava:     Number,
         flag_gk:        Number
     },
-
     supplementaryIndices: {
         mentzer:       Number,
         shine_lal:     Number,
         hbg_rbc_ratio: Number
     },
-
-    prediction:           { type: Number, enum: [0, 1] },
+    prediction:           { type: Number,  enum: [0, 1] },
     label:                { type: String },
     carrier_probability:  { type: Number },
     referral_recommended: { type: Boolean },
     confidence:           { type: String },
     clinical_note:        { type: String },
-
-    createdAt: { type: Date, default: Date.now }
+    createdAt:            { type: Date, default: Date.now }
 });
 
 module.exports = mongoose.model('Prediction', PredictionSchema);
