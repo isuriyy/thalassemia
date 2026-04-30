@@ -10,10 +10,13 @@ const PredictionSchema = new mongoose.Schema({
     age:           { type: Number },
     sex:           { type: String,  enum: ['Male', 'Female', 'Other'] },
 
-    // ── NEW FIELDS ──────────────────────────────────────────
     district:      { type: String,  default: null },
     isPregnant:    { type: Boolean, default: false },
     familyHistory: { type: Boolean, default: false },
+
+    // ── COUPLE SCREENING LINK ───────────────────────────────
+    coupleScreeningId: { type: String,  default: null },
+    coupleRole:        { type: String,  enum: ['Partner A', 'Partner B', null], default: null },
     // ────────────────────────────────────────────────────────
 
     cbcParams: {

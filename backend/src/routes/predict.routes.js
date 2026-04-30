@@ -1,10 +1,11 @@
 const express    = require('express');
 const axios      = require('axios');
+const { v4: uuidv4 } = require('uuid');
 const protect    = require('../middleware/auth');
 const Prediction = require('../models/Prediction');
 const router     = express.Router();
 
-// GET /api/predict/health — proxy check to Python ML API
+// GET /api/predict/health
 router.get('/health', async (req, res) => {
     try {
         const start = Date.now();
@@ -21,15 +22,115 @@ router.get('/health', async (req, res) => {
     }
 });
 
+// POST /api/predict/couple — screen two partners together
+router.post('/couple', protect, async (req, res) => {
+    try {
+        const { partnerA, partnerB } = req.body;
+
+        if (!partnerA || !partnerB) {
+            return res.status(400).json({ message: 'Both partnerA and partnerB are required' });
+        }
+
+        const coupleScreeningId = uuidv4();
+
+        // Run both predictions in parallel
+        const [resA, resB] = await Promise.all([
+            axios.post(`${process.env.PYTHON_API_URL}/predict`, {
+                age: partnerA.age, mcv: partnerA.mcv,
+                mch: partnerA.mch, hbg: partnerA.hbg,
+                ...(partnerA.rbc ? { rbc: partnerA.rbc } : {})
+            }, { timeout: 10000 }),
+            axios.post(`${process.env.PYTHON_API_URL}/predict`, {
+                age: partnerB.age, mcv: partnerB.mcv,
+                mch: partnerB.mch, hbg: partnerB.hbg,
+                ...(partnerB.rbc ? { rbc: partnerB.rbc } : {})
+            }, { timeout: 10000 }),
+        ]);
+
+        const resultA = resA.data;
+        const resultB = resB.data;
+
+        // Save both records linked by coupleScreeningId
+        const [recordA, recordB] = await Promise.all([
+            Prediction.create({
+                clinicianId:          req.clinician._id,
+                patientId:            partnerA.patientId || 'Partner A',
+                age: partnerA.age,    sex: partnerA.sex,
+                district:             partnerA.district || null,
+                isPregnant:           partnerA.isPregnant || false,
+                familyHistory:        partnerA.familyHistory || false,
+                coupleScreeningId,
+                coupleRole:           'Partner A',
+                cbcParams:            { MCV: partnerA.mcv, MCH: partnerA.mch, HBG: partnerA.hbg, RBC: partnerA.rbc },
+                derivedFeatures:      resultA.derived_features,
+                supplementaryIndices: resultA.supplementary_indices,
+                prediction:           resultA.prediction,
+                label:                resultA.label,
+                carrier_probability:  resultA.carrier_probability,
+                referral_recommended: resultA.referral_recommended,
+                confidence:           resultA.confidence,
+                clinical_note:        resultA.clinical_note,
+            }),
+            Prediction.create({
+                clinicianId:          req.clinician._id,
+                patientId:            partnerB.patientId || 'Partner B',
+                age: partnerB.age,    sex: partnerB.sex,
+                district:             partnerB.district || null,
+                isPregnant:           partnerB.isPregnant || false,
+                familyHistory:        partnerB.familyHistory || false,
+                coupleScreeningId,
+                coupleRole:           'Partner B',
+                cbcParams:            { MCV: partnerB.mcv, MCH: partnerB.mch, HBG: partnerB.hbg, RBC: partnerB.rbc },
+                derivedFeatures:      resultB.derived_features,
+                supplementaryIndices: resultB.supplementary_indices,
+                prediction:           resultB.prediction,
+                label:                resultB.label,
+                carrier_probability:  resultB.carrier_probability,
+                referral_recommended: resultB.referral_recommended,
+                confidence:           resultB.confidence,
+                clinical_note:        resultB.clinical_note,
+            }),
+        ]);
+
+        const bothCarriers  = resultA.prediction === 1 && resultB.prediction === 1;
+        const oneCarrier    = resultA.prediction === 1 || resultB.prediction === 1;
+        const childRisk     = bothCarriers ? 25 : oneCarrier ? 0 : 0;
+        const carrierChildRisk = bothCarriers ? 50 : oneCarrier ? 50 : 0;
+
+        res.json({
+            coupleScreeningId,
+            partnerA: { ...resultA, recordId: recordA._id },
+            partnerB: { ...resultB, recordId: recordB._id },
+            coupleRisk: {
+                bothCarriers,
+                oneCarrier,
+                affectedChildRisk:  childRisk,
+                carrierChildRisk,
+                referralRecommended: bothCarriers,
+                summary: bothCarriers
+                    ? 'Both partners are carriers. Each pregnancy carries a 25% risk of an affected child and 50% risk of a carrier child. Urgent genetic counselling and prenatal diagnosis recommended.'
+                    : oneCarrier
+                    ? 'One partner is a carrier. Children have a 50% chance of being carriers but are not at risk of the disease. Genetic counselling advised.'
+                    : 'Neither partner is identified as a carrier. Routine follow-up applies.',
+            }
+        });
+
+    } catch (error) {
+        if (error.code === 'ECONNREFUSED') {
+            return res.status(503).json({ message: 'ML service unavailable' });
+        }
+        res.status(500).json({ message: error.message });
+    }
+});
+
 // POST /api/predict — single patient
 router.post('/', protect, async (req, res) => {
     try {
-        const { patientId, age, sex, mcv, mch, hbg, rbc } = req.body;
+        const { patientId, age, sex, mcv, mch, hbg, rbc,
+                district, isPregnant, familyHistory } = req.body;
 
         if (!mcv || !mch || !hbg || !age) {
-            return res.status(400).json({
-                message: 'Age, MCV, MCH and HBG are required'
-            });
+            return res.status(400).json({ message: 'Age, MCV, MCH and HBG are required' });
         }
 
         const mlPayload = { age, mcv, mch, hbg };
@@ -47,6 +148,9 @@ router.post('/', protect, async (req, res) => {
             clinicianId:          req.clinician._id,
             patientId:            patientId || 'Anonymous',
             age, sex,
+            district:             district      || null,
+            isPregnant:           isPregnant    || false,
+            familyHistory:        familyHistory || false,
             cbcParams:            { MCV: mcv, MCH: mch, HBG: hbg, RBC: rbc },
             derivedFeatures:      result.derived_features,
             supplementaryIndices: result.supplementary_indices,
@@ -62,9 +166,7 @@ router.post('/', protect, async (req, res) => {
 
     } catch (error) {
         if (error.code === 'ECONNREFUSED') {
-            return res.status(503).json({
-                message: 'ML service unavailable — ensure Python API is running on port 5001'
-            });
+            return res.status(503).json({ message: 'ML service unavailable — ensure Python API is running on port 5001' });
         }
         if (error.code === 'ECONNABORTED') {
             return res.status(504).json({ message: 'ML service timeout' });
@@ -73,7 +175,7 @@ router.post('/', protect, async (req, res) => {
     }
 });
 
-// POST /api/predict/batch — multiple patients
+// POST /api/predict/batch
 router.post('/batch', protect, async (req, res) => {
     try {
         const patients = req.body;
@@ -114,7 +216,6 @@ router.post('/batch', protect, async (req, res) => {
                 results.push({ ...data, patientId: p.patientId || 'Batch', status: 'ok' });
 
             } catch (innerErr) {
-                console.error('Batch patient error:', innerErr.message);
                 results.push({
                     patientId: p.patientId || 'Unknown',
                     status: 'error',
@@ -127,7 +228,6 @@ router.post('/batch', protect, async (req, res) => {
         res.json({ total: results.length, results });
 
     } catch (err) {
-        console.error('Batch route error:', err.message);
         res.status(500).json({ message: err.message });
     }
 });
