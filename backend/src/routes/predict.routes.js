@@ -4,6 +4,23 @@ const protect    = require('../middleware/auth');
 const Prediction = require('../models/Prediction');
 const router     = express.Router();
 
+// GET /api/predict/health — proxy check to Python ML API
+router.get('/health', async (req, res) => {
+    try {
+        const start = Date.now();
+        const { data } = await axios.get(
+            `${process.env.PYTHON_API_URL}/health`,
+            { timeout: 6000 }
+        );
+        res.json({ ok: true, latency: Date.now() - start, ...data });
+    } catch (error) {
+        res.status(503).json({
+            ok: false,
+            message: 'Python API unreachable — ensure uvicorn is running on port 5001'
+        });
+    }
+});
+
 // POST /api/predict — single patient
 router.post('/', protect, async (req, res) => {
     try {
@@ -71,18 +88,8 @@ router.post('/batch', protect, async (req, res) => {
         const results = [];
         for (const p of patients) {
             try {
-                // Log what we are sending to Python API
-                console.log('Batch patient payload:', JSON.stringify(p));
-
-                const mlPayload = {
-                    age: p.age,
-                    mcv: p.mcv,
-                    mch: p.mch,
-                    hbg: p.hbg
-                };
+                const mlPayload = { age: p.age, mcv: p.mcv, mch: p.mch, hbg: p.hbg };
                 if (p.rbc) mlPayload.rbc = p.rbc;
-
-                console.log('ML payload:', JSON.stringify(mlPayload));
 
                 const { data } = await axios.post(
                     `${process.env.PYTHON_API_URL}/predict`,
@@ -104,18 +111,10 @@ router.post('/batch', protect, async (req, res) => {
                     clinical_note:        data.clinical_note,
                 });
 
-                results.push({
-                    ...data,
-                    patientId: p.patientId || 'Batch',
-                    status: 'ok'
-                });
+                results.push({ ...data, patientId: p.patientId || 'Batch', status: 'ok' });
 
             } catch (innerErr) {
-                // Log the actual error so we can see it
                 console.error('Batch patient error:', innerErr.message);
-                console.error('Error response:', innerErr.response?.data);
-                console.error('Error status:', innerErr.response?.status);
-
                 results.push({
                     patientId: p.patientId || 'Unknown',
                     status: 'error',
