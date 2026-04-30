@@ -67,14 +67,65 @@ router.get('/stats', protect, async (req, res) => {
             }}
         ]);
 
-        res.json({
-            total,
-            carriers,
-            nonCarriers,
-            referrals,
+        res.json({ total, carriers, nonCarriers, referrals,
             carrierRate: total > 0 ? parseFloat(((carriers / total) * 100).toFixed(1)) : 0,
             trend
         });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// GET /api/history/analytics/age
+router.get('/analytics/age', protect, async (req, res) => {
+    try {
+        const clinicianId = req.clinician._id;
+        const data = await Prediction.aggregate([
+            { $match: { clinicianId, age: { $exists: true, $ne: null } } },
+            { $bucket: {
+                groupBy: '$age',
+                boundaries: [0, 10, 20, 30, 40, 50, 60, 70, 100],
+                default: 'Other',
+                output: {
+                    total:    { $sum: 1 },
+                    carriers: { $sum: { $cond: [{ $eq: ['$prediction', 1] }, 1, 0] } }
+                }
+            }},
+            { $project: {
+                range:    { $switch: { branches: [
+                    { case: { $eq: ['$_id', 0]  }, then: '<10' },
+                    { case: { $eq: ['$_id', 10] }, then: '10–19' },
+                    { case: { $eq: ['$_id', 20] }, then: '20–29' },
+                    { case: { $eq: ['$_id', 30] }, then: '30–39' },
+                    { case: { $eq: ['$_id', 40] }, then: '40–49' },
+                    { case: { $eq: ['$_id', 50] }, then: '50–59' },
+                    { case: { $eq: ['$_id', 60] }, then: '60–69' },
+                    { case: { $eq: ['$_id', 70] }, then: '70+' },
+                ], default: 'Other' }},
+                total:    1,
+                carriers: 1
+            }}
+        ]);
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// GET /api/history/analytics/sex
+router.get('/analytics/sex', protect, async (req, res) => {
+    try {
+        const clinicianId = req.clinician._id;
+        const data = await Prediction.aggregate([
+            { $match: { clinicianId } },
+            { $group: {
+                _id:      '$sex',
+                total:    { $sum: 1 },
+                carriers: { $sum: { $cond: [{ $eq: ['$prediction', 1] }, 1, 0] } }
+            }},
+            { $project: { sex: { $ifNull: ['$_id', 'Unknown'] }, total: 1, carriers: 1 } }
+        ]);
+        res.json(data);
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
