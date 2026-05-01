@@ -3,6 +3,8 @@ const protect    = require('../middleware/auth');
 const Prediction = require('../models/Prediction');
 const router     = express.Router();
 
+const VALID_OUTCOMES = ['Pending', 'Confirmed Carrier', 'Not Confirmed', 'Lost to Follow-up'];
+
 // GET /api/history
 router.get('/', protect, async (req, res) => {
     try {
@@ -92,18 +94,17 @@ router.get('/analytics/age', protect, async (req, res) => {
                 }
             }},
             { $project: {
-                range:    { $switch: { branches: [
-                    { case: { $eq: ['$_id', 0]  }, then: '<10' },
+                range: { $switch: { branches: [
+                    { case: { $eq: ['$_id', 0]  }, then: '<10'   },
                     { case: { $eq: ['$_id', 10] }, then: '10–19' },
                     { case: { $eq: ['$_id', 20] }, then: '20–29' },
                     { case: { $eq: ['$_id', 30] }, then: '30–39' },
                     { case: { $eq: ['$_id', 40] }, then: '40–49' },
                     { case: { $eq: ['$_id', 50] }, then: '50–59' },
                     { case: { $eq: ['$_id', 60] }, then: '60–69' },
-                    { case: { $eq: ['$_id', 70] }, then: '70+' },
+                    { case: { $eq: ['$_id', 70] }, then: '70+'   },
                 ], default: 'Other' }},
-                total:    1,
-                carriers: 1
+                total: 1, carriers: 1
             }}
         ]);
         res.json(data);
@@ -126,6 +127,37 @@ router.get('/analytics/sex', protect, async (req, res) => {
             { $project: { sex: { $ifNull: ['$_id', 'Unknown'] }, total: 1, carriers: 1 } }
         ]);
         res.json(data);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// PATCH /api/history/:id/outcome — update follow-up outcome
+router.patch('/:id/outcome', protect, async (req, res) => {
+    try {
+        const { outcome, outcomeNote } = req.body;
+
+        if (!VALID_OUTCOMES.includes(outcome)) {
+            return res.status(400).json({
+                message: `Invalid outcome. Must be one of: ${VALID_OUTCOMES.join(', ')}`
+            });
+        }
+
+        const record = await Prediction.findOneAndUpdate(
+            { _id: req.params.id, clinicianId: req.clinician._id },
+            {
+                outcome,
+                outcomeNote:   outcomeNote || '',
+                outcomeUpdatedAt: new Date(),
+            },
+            { new: true }
+        );
+
+        if (!record) {
+            return res.status(404).json({ message: 'Record not found' });
+        }
+
+        res.json({ success: true, outcome: record.outcome, outcomeNote: record.outcomeNote });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }

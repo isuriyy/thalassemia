@@ -14,10 +14,15 @@ const PredictionSchema = new mongoose.Schema({
     isPregnant:    { type: Boolean, default: false },
     familyHistory: { type: Boolean, default: false },
 
-    // ── COUPLE SCREENING LINK ───────────────────────────────
+    //  COUPLE SCREENING LINK 
     coupleScreeningId: { type: String,  default: null },
     coupleRole:        { type: String,  enum: ['Partner A', 'Partner B', null], default: null },
-    // ────────────────────────────────────────────────────────
+    
+
+    // FOLLOW-UP OUTCOME 
+    outcome:          { type: String, enum: ['Pending', 'Confirmed Carrier', 'Not Confirmed', 'Lost to Follow-up'], default: 'Pending' },
+    outcomeNote:      { type: String, default: '' },
+    outcomeUpdatedAt: { type: Date,   default: null },
 
     cbcParams: {
         MCV: Number,
