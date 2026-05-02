@@ -305,17 +305,17 @@ export default function Screen() {
   );
 }
 
-// ── Sub-components ──────────────────────────────────────────
+//  Sub-components 
 
 function RangeField({ field, value, onChange }) {
   const r      = RANGES[field];
   const status = getRangeStatus(field, value);
   const labels = { mcv:'MCV (fL)', mch:'MCH (pg)', hbg:'HBG (g/dL)' };
   const inputStyle = {
-    ...inp,
-    ...(status==='below'||status==='above' ? {background:'#FFFBEB',borderColor:'#FAC775',color:'#1a1a1a'} : {}),
-    ...(status==='invalid'                 ? {background:'#fef2f2',borderColor:'#fca5a5',color:'#1a1a1a'} : {}),
-  };
+  ...inp,
+  ...(status==='below'||status==='above' ? {background:'#FFFBEB',borderColor:'#FAC775',color:'#1a1a1a',WebkitTextFillColor:'#1a1a1a'} : {}),
+  ...(status==='invalid'                 ? {background:'#fef2f2',borderColor:'#fca5a5',color:'#1a1a1a',WebkitTextFillColor:'#1a1a1a'} : {}),
+};
   return (
     <div style={{ marginBottom:10 }}>
       <label style={s.label}>{labels[field]} *</label>
@@ -356,12 +356,13 @@ function ProbBar({ label, value, color }) {
   );
 }
 
-// ── Styles ──────────────────────────────────────────────────
+// Styles 
 
 const inp = {
   width:'100%', padding:'7px 10px', border:'0.5px solid var(--border)',
   borderRadius:8, fontSize:13, boxSizing:'border-box', outline:'none',
-  background:'var(--bg-input)', color:'var(--text-1)',
+  background:'var(--bg-input)', color:'var(--text-primary)',
+  WebkitTextFillColor:'var(--text-primary)',
 };
 
 const s = {
