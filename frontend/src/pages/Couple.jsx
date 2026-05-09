@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import Layout       from '../components/Layout';
 import api          from '../api/api';
-import { generateCoupleReport } from '../components/generateCoupleReport';
+import { generateCoupleReport }          from '../components/generateCoupleReport';
+import { generateCoupleReferralLetter }  from '../components/generateReferralLetter';
 
 const RANGES = {
   mcv: { min:40,  max:160, normal:[80, 100], unit:'fL'  },
@@ -35,7 +36,6 @@ function getRangeStatus(field, val) {
   return 'normal';
 }
 
-// Shared input style — uses CSS vars so dark mode works 
 const inp = {
   width:'100%', padding:'6px 9px',
   border:'0.5px solid var(--border)',
@@ -46,13 +46,15 @@ const inp = {
 };
 
 export default function Couple() {
-  const [a,       setA]       = useState({ ...INIT_PARTNER, sex:'Female' });
-  const [b,       setB]       = useState({ ...INIT_PARTNER, sex:'Male'   });
-  const [result,  setResult]  = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState('');
+  const [a,          setA]          = useState({ ...INIT_PARTNER, sex:'Female' });
+  const [b,          setB]          = useState({ ...INIT_PARTNER, sex:'Male'   });
+  const [result,     setResult]     = useState(null);
+  const [loading,    setLoading]    = useState(false);
+  const [error,      setError]      = useState('');
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfDone,    setPdfDone]    = useState(false);
+  const [refLoading, setRefLoading] = useState(false);
+  const [refDone,    setRefDone]    = useState(false);
 
   const setPartner = (who, k, v) => {
     const setter = who === 'a' ? setA : setB;
@@ -94,10 +96,7 @@ export default function Couple() {
     setPdfLoading(true); setPdfDone(false);
     try {
       await generateCoupleReport({
-        result,
-        partnerA: a,
-        partnerB: b,
-        clinicianName: 'Dr. Isuri',
+        result, partnerA: a, partnerB: b, clinicianName: 'Dr. Isuri',
       });
       setPdfDone(true);
       setTimeout(() => setPdfDone(false), 3000);
@@ -105,6 +104,20 @@ export default function Couple() {
       console.error('PDF failed:', err);
       alert('PDF generation failed. Check console.');
     } finally { setPdfLoading(false); }
+  };
+
+  const handleReferral = async () => {
+    if (!result) return;
+    setRefLoading(true); setRefDone(false);
+    try {
+      await generateCoupleReferralLetter({
+        result, partnerA: a, partnerB: b, clinicianName: 'Dr. Isuri',
+      });
+      setRefDone(true);
+      setTimeout(() => setRefDone(false), 3000);
+    } catch (err) {
+      console.error('Referral PDF failed:', err);
+    } finally { setRefLoading(false); }
   };
 
   return (
@@ -135,7 +148,7 @@ export default function Couple() {
           <>
             <CoupleResult result={result} partnerA={a} partnerB={b} />
 
-            {/* PDF Download */}
+            {/* Couple screening PDF */}
             <button
               onClick={handlePDF}
               disabled={pdfLoading}
@@ -149,17 +162,37 @@ export default function Couple() {
                : pdfDone  ? '✓ PDF Downloaded'
                : '⬇ Download Couple Screening Report (PDF)'}
             </button>
+
+            {/* MOH Referral Letter */}
+            {(result.coupleRisk?.bothCarriers || result.coupleRisk?.oneCarrier) && (
+              <button
+                onClick={handleReferral}
+                disabled={refLoading}
+                style={{
+                  width:'100%', padding:10, marginTop:6, marginBottom:20,
+                  background: refDone ? '#064E3B' : '#FFFBEB',
+                  color:      refDone ? '#6EE7B7' : '#92400E',
+                  border:     `0.5px solid ${refDone ? '#059669' : '#FAC775'}`,
+                  borderRadius:8, fontSize:13, cursor:'pointer',
+                  fontFamily:'inherit', opacity: refLoading ? 0.6 : 1,
+                }}
+              >
+                {refLoading ? '⏳ Generating Referral…'
+                 : refDone  ? '✓ Referral Letter Downloaded'
+                 : '📋 Download MOH Couple Referral Letter'}
+              </button>
+            )}
           </>
         )}
+
       </div>
     </Layout>
   );
 }
 
-//  PartnerForm 
+// ── PartnerForm ───────────────────────────────────────────────────────────────
 function PartnerForm({ label, data, onChange, accent }) {
   const isMale = data.sex === 'Male';
-
   return (
     <div style={{ ...s.partnerCard, borderTop: `3px solid ${accent}` }}>
       <div style={{ ...s.partnerLabel, color: accent }}>{label}</div>
@@ -220,12 +253,11 @@ function PartnerForm({ label, data, onChange, accent }) {
   );
 }
 
-//  CoupleResult 
+// ── CoupleResult ──────────────────────────────────────────────────────────────
 function CoupleResult({ result, partnerA, partnerB }) {
   const { coupleRisk } = result;
   const rA = result.partnerA;
   const rB = result.partnerB;
-
   const riskColor  = coupleRisk.bothCarriers ? '#E24B4A' : coupleRisk.oneCarrier ? '#D97706' : '#1D9E75';
   const riskBg     = coupleRisk.bothCarriers ? '#FCEBEB' : coupleRisk.oneCarrier ? '#FFFBEB' : '#E1F5EE';
   const riskBorder = coupleRisk.bothCarriers ? '#F7C1C1' : coupleRisk.oneCarrier ? '#FAC775' : '#9FE1CB';
@@ -283,7 +315,7 @@ function CoupleResult({ result, partnerA, partnerB }) {
   );
 }
 
-// IndividualResult 
+// ── IndividualResult ──────────────────────────────────────────────────────────
 function IndividualResult({ label, name, result, accent }) {
   const isCarrier = result.prediction === 1;
   return (
@@ -457,7 +489,7 @@ const s = {
   warn:             { fontSize:10, color:'#854F0B', marginTop:2 },
   err:              { background:'#fef2f2', color:'#b91c1c', borderRadius:8, padding:'8px 12px', fontSize:12, margin:'8px 0' },
   runBtn:           { width:'100%', padding:11, background:'#1D9E75', color:'#fff', border:'none', borderRadius:8, fontSize:13, cursor:'pointer', fontFamily:'inherit', marginBottom:20 },
-  pdfBtn:           { width:'100%', padding:10, background:'#1e293b', color:'#e2e8f0', border:'0.5px solid #334155', borderRadius:8, fontSize:13, cursor:'pointer', fontFamily:'inherit', marginTop:8, marginBottom:20 },
+  pdfBtn:           { width:'100%', padding:10, background:'#1e293b', color:'#e2e8f0', border:'0.5px solid #334155', borderRadius:8, fontSize:13, cursor:'pointer', fontFamily:'inherit', marginTop:8, marginBottom:4 },
   pdfDone:          { background:'#064E3B', color:'#6EE7B7', border:'0.5px solid #059669' },
   pdfLoading:       { opacity:0.6, cursor:'wait' },
   resultWrap:       { marginTop:6 },

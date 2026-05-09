@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import Layout from '../components/Layout';
-import api from '../api/api';
+import api    from '../api/api';
+import { generateReferralLetter } from '../components/generateReferralLetter';
 
 const OUTCOMES = ['Pending', 'Confirmed Carrier', 'Not Confirmed', 'Lost to Follow-up'];
 
@@ -13,16 +13,16 @@ const OUTCOME_STYLE = {
 };
 
 export default function History() {
-  const [records,  setRecords]  = useState([]);
-  const [stats,    setStats]    = useState(null);
-  const [search,   setSearch]   = useState('');
-  const [filter,   setFilter]   = useState('all');
-  const [page,     setPage]     = useState(1);
-  const [total,    setTotal]    = useState(0);
-  const [loading,  setLoading]  = useState(true);
-  const [expanded, setExpanded] = useState(null);   // record _id with open outcome panel
-  const [saving,   setSaving]   = useState(null);   // record _id currently saving
-  const [draftOutcome, setDraftOutcome] = useState({});  // { [_id]: { outcome, note } }
+  const [records,      setRecords]      = useState([]);
+  const [stats,        setStats]        = useState(null);
+  const [search,       setSearch]       = useState('');
+  const [filter,       setFilter]       = useState('all');
+  const [page,         setPage]         = useState(1);
+  const [total,        setTotal]        = useState(0);
+  const [loading,      setLoading]      = useState(true);
+  const [expanded,     setExpanded]     = useState(null);
+  const [saving,       setSaving]       = useState(null);
+  const [draftOutcome, setDraftOutcome] = useState({});
   const LIMIT = 20;
 
   const fetchData = async () => {
@@ -41,10 +41,10 @@ export default function History() {
   useEffect(() => { fetchData(); }, [page]);
 
   const filters = [
-    { key:'all',        label:'All'          },
-    { key:'carrier',    label:'Carriers'     },
-    { key:'noncarrier', label:'Non-carriers' },
-    { key:'referral',   label:'Referrals'    },
+    { key:'all',        label:'All'               },
+    { key:'carrier',    label:'Carriers'          },
+    { key:'noncarrier', label:'Non-carriers'      },
+    { key:'referral',   label:'Referrals'         },
     { key:'pending',    label:'Pending follow-up' },
   ];
 
@@ -61,13 +61,11 @@ export default function History() {
     return matchSearch && matchFilter;
   });
 
-  const toggleExpand = (id) => {
-    setExpanded(e => e === id ? null : id);
-  };
+  const toggleExpand = (id) => setExpanded(e => e === id ? null : id);
 
   const getDraft = (r) => draftOutcome[r._id] || {
-    outcome:  r.outcome      || 'Pending',
-    note:     r.outcomeNote  || '',
+    outcome: r.outcome     || 'Pending',
+    note:    r.outcomeNote || '',
   };
 
   const setDraft = (id, key, val) => {
@@ -85,7 +83,6 @@ export default function History() {
         outcome:     draft.outcome,
         outcomeNote: draft.note,
       });
-      // Update local records so badge reflects immediately
       setRecords(prev => prev.map(rec =>
         rec._id === r._id
           ? { ...rec, outcome: draft.outcome, outcomeNote: draft.note, outcomeUpdatedAt: new Date().toISOString() }
@@ -97,8 +94,41 @@ export default function History() {
     } finally { setSaving(null); }
   };
 
+  const handleHistoryReferral = async (r) => {
+    try {
+      await generateReferralLetter({
+        result: {
+          prediction:              r.prediction,
+          carrier_probability:     r.carrier_probability,
+          non_carrier_probability: 1 - r.carrier_probability,
+          referral_recommended:    r.referral_recommended,
+          confidence:              r.confidence,
+          clinical_note:           r.clinical_note,
+          derived_features:        r.derivedFeatures,
+          supplementary_indices:   r.supplementaryIndices,
+          label:                   r.label,
+        },
+        form: {
+          patientId: r.patientId,
+          age:       r.age,
+          sex:       r.sex,
+          mcv:       r.cbcParams?.MCV,
+          mch:       r.cbcParams?.MCH,
+          hbg:       r.cbcParams?.HBG,
+          rbc:       r.cbcParams?.RBC,
+        },
+        district:      r.district      || '',
+        isPregnant:    r.isPregnant    || false,
+        familyHistory: r.familyHistory || false,
+        clinicianName: 'Dr. Isuri',
+      });
+    } catch (err) {
+      console.error('Referral PDF failed:', err);
+    }
+  };
+
   const exportCSV = () => {
-    const hdr = 'date,patient_id,age,mcv,mch,hgb,prediction,probability,confidence,referral,outcome\n';
+    const hdr  = 'date,patient_id,age,mcv,mch,hgb,prediction,probability,confidence,referral,outcome\n';
     const rows = filtered.map(r =>
       `${new Date(r.createdAt).toLocaleDateString()},${r.patientId},${r.age},${r.cbcParams?.MCV},${r.cbcParams?.MCH},${r.cbcParams?.HBG},${r.label},${Math.round(r.carrier_probability*100)}%,${r.confidence},${r.referral_recommended?'Yes':'No'},${r.outcome||'Pending'}`
     ).join('\n');
@@ -109,9 +139,7 @@ export default function History() {
     URL.revokeObjectURL(url);
   };
 
-  const pages = Math.ceil(total / LIMIT);
-
-  // Pending follow-up count (carriers with Pending outcome)
+  const pages        = Math.ceil(total / LIMIT);
   const pendingCount = records.filter(r =>
     r.prediction === 1 && (!r.outcome || r.outcome === 'Pending')
   ).length;
@@ -122,11 +150,11 @@ export default function History() {
       {/* ── Stat row ── */}
       <div style={s.metricRow}>
         {[
-          { val: stats?.total,                   label:'Total screened', color:'var(--text-primary)' },
-          { val: stats?.carriers,                label:'Carriers',       color:'#A32D2D' },
-          { val: stats?.nonCarriers,             label:'Non-carriers',   color:'#0F6E56' },
-          { val: `${stats?.carrierRate || 0}%`,  label:'Carrier rate',   color:'var(--text-primary)' },
-          { val: pendingCount,                   label:'Pending follow-up', color:'#633806' },
+          { val: stats?.total,                  label:'Total screened',    color:'var(--text-primary)' },
+          { val: stats?.carriers,               label:'Carriers',          color:'#A32D2D'             },
+          { val: stats?.nonCarriers,            label:'Non-carriers',      color:'#0F6E56'             },
+          { val: `${stats?.carrierRate || 0}%`, label:'Carrier rate',      color:'var(--text-primary)' },
+          { val: pendingCount,                  label:'Pending follow-up', color:'#633806'             },
         ].map((m, i) => (
           <div key={i} style={s.metricCard}>
             <div style={{ fontSize:22, fontWeight:500, color:m.color }}>{loading ? '—' : m.val}</div>
@@ -177,11 +205,11 @@ export default function History() {
               </thead>
               <tbody>
                 {filtered.map((r, i) => {
-                  const isOpen    = expanded === r._id;
-                  const isSaving  = saving   === r._id;
-                  const draft     = getDraft(r);
-                  const outcome   = r.outcome || 'Pending';
-                  const os        = OUTCOME_STYLE[outcome] || OUTCOME_STYLE['Pending'];
+                  const isOpen   = expanded === r._id;
+                  const isSaving = saving   === r._id;
+                  const draft    = getDraft(r);
+                  const outcome  = r.outcome || 'Pending';
+                  const os       = OUTCOME_STYLE[outcome] || OUTCOME_STYLE['Pending'];
                   const showPanel = r.prediction === 1 || r.referral_recommended;
 
                   return (
@@ -210,8 +238,6 @@ export default function History() {
                         <td style={{ ...s.td, color: r.referral_recommended?'#A32D2D':'var(--text-hint)' }}>
                           {r.referral_recommended ? 'Yes' : 'No'}
                         </td>
-
-                        {/* Outcome badge */}
                         <td style={s.td}>
                           <span style={{
                             ...s.outcomeBadge,
@@ -222,15 +248,10 @@ export default function History() {
                             {outcome}
                           </span>
                         </td>
-
-                        {/* Expand toggle — only for carriers / referrals */}
                         <td style={{ ...s.td, textAlign:'center' }}>
                           {showPanel && (
-                            <button
-                              style={s.editBtn}
-                              onClick={() => toggleExpand(r._id)}
-                              title="Update follow-up outcome"
-                            >
+                            <button style={s.editBtn} onClick={() => toggleExpand(r._id)}
+                              title="Update follow-up outcome">
                               {isOpen ? '✕' : '✎'}
                             </button>
                           )}
@@ -265,10 +286,10 @@ export default function History() {
                                           onClick={() => setDraft(r._id, 'outcome', o)}
                                           style={{
                                             ...s.outcomeOpt,
-                                            background:  sel ? os2.bg     : 'var(--bg-card)',
-                                            color:       sel ? os2.color  : 'var(--text-secondary)',
-                                            border:      sel ? `1.5px solid ${os2.border}` : '0.5px solid var(--border)',
-                                            fontWeight:  sel ? 600 : 400,
+                                            background: sel ? os2.bg    : 'var(--bg-card)',
+                                            color:      sel ? os2.color : 'var(--text-secondary)',
+                                            border:     sel ? `1.5px solid ${os2.border}` : '0.5px solid var(--border)',
+                                            fontWeight: sel ? 600 : 400,
                                           }}>
                                           {o}
                                         </button>
@@ -279,7 +300,9 @@ export default function History() {
 
                                 {/* Note */}
                                 <div style={s.panelField}>
-                                  <label style={s.panelLabel}>Clinical note <span style={{ fontWeight:400, color:'var(--text-hint)' }}>(optional)</span></label>
+                                  <label style={s.panelLabel}>
+                                    Clinical note <span style={{ fontWeight:400, color:'var(--text-hint)' }}>(optional)</span>
+                                  </label>
                                   <textarea
                                     style={s.noteArea}
                                     rows={2}
@@ -289,13 +312,28 @@ export default function History() {
                                   />
                                 </div>
 
-                                {/* Save */}
-                                <button
-                                  style={{ ...s.saveBtn, ...(isSaving ? { opacity:0.6, cursor:'wait' } : {}) }}
-                                  disabled={isSaving}
-                                  onClick={() => saveOutcome(r)}>
-                                  {isSaving ? 'Saving…' : 'Save outcome'}
-                                </button>
+                                {/* Action buttons */}
+                                <div style={{ display:'flex', flexDirection:'column', gap:6, alignSelf:'flex-end', marginTop:18 }}>
+                                  <button
+                                    style={{ ...s.saveBtn, ...(isSaving ? { opacity:0.6, cursor:'wait' } : {}) }}
+                                    disabled={isSaving}
+                                    onClick={() => saveOutcome(r)}>
+                                    {isSaving ? 'Saving…' : 'Save outcome'}
+                                  </button>
+                                  {r.referral_recommended && (
+                                    <button
+                                      style={{
+                                        padding:'7px 14px', background:'#FFFBEB',
+                                        color:'#92400E', border:'0.5px solid #FAC775',
+                                        borderRadius:8, fontSize:12, cursor:'pointer',
+                                        fontFamily:'inherit', whiteSpace:'nowrap',
+                                      }}
+                                      onClick={() => handleHistoryReferral(r)}
+                                    >
+                                      📋 Referral Letter
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           </td>
@@ -327,60 +365,56 @@ export default function History() {
   );
 }
 
-// ── Styles ────────────────────────────────────────────────────────────────────
 const s = {
-  metricRow:    { display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:10, marginBottom:16 },
-  metricCard:   { background:'var(--bg-card)', border:'0.5px solid var(--border)', borderRadius:12, padding:'12px 14px' },
-  card:         { background:'var(--bg-card)', border:'0.5px solid var(--border)', borderRadius:12, padding:'14px 16px' },
-  cardTitle:    { fontSize:13, fontWeight:500, color:'var(--text-primary)' },
-  searchBar:    { width:'100%', padding:'8px 12px', border:'0.5px solid var(--border)', borderRadius:8,
-                  fontSize:13, boxSizing:'border-box', marginBottom:10,
-                  background:'var(--bg-input)', color:'var(--text-primary)', outline:'none',
-                  WebkitTextFillColor:'var(--text-primary)' },
-  filterRow:    { display:'flex', gap:6, flexWrap:'wrap', marginBottom:12 },
-  filterBtn:    { padding:'4px 12px', borderRadius:20, fontSize:12, border:'0.5px solid var(--border)',
-                  color:'var(--text-secondary)', background:'transparent', cursor:'pointer' },
-  filterSel:    { padding:'4px 12px', borderRadius:20, fontSize:12, border:'0.5px solid #9FE1CB',
-                  color:'#0F6E56', background:'#E1F5EE', cursor:'pointer' },
-  exportBtn:    { fontSize:12, color:'#0F6E56', border:'0.5px solid #9FE1CB', borderRadius:20,
-                  padding:'4px 12px', background:'#E1F5EE', cursor:'pointer' },
-  empty:        { fontSize:13, color:'var(--text-hint)', padding:'24px 0', textAlign:'center' },
-  tbl:          { width:'100%', borderCollapse:'collapse', fontSize:12 },
-  th:           { textAlign:'left', fontSize:11, color:'var(--text-hint)', fontWeight:500,
-                  padding:'6px 10px', borderBottom:'0.5px solid var(--border)', whiteSpace:'nowrap' },
-  td:           { padding:'8px 10px', borderBottom:'0.5px solid var(--border)',
-                  color:'var(--text-primary)', whiteSpace:'nowrap', verticalAlign:'middle' },
-  tagC:         { display:'inline-block', padding:'2px 8px', borderRadius:20, fontSize:11, background:'#FCEBEB', color:'#A32D2D' },
-  tagNC:        { display:'inline-block', padding:'2px 8px', borderRadius:20, fontSize:11, background:'#E1F5EE', color:'#0F6E56' },
-  confH:        { fontSize:11, padding:'2px 7px', borderRadius:20, background:'#E1F5EE', color:'#0F6E56' },
-  confM:        { fontSize:11, padding:'2px 7px', borderRadius:20, background:'#FAEEDA', color:'#633806' },
-  confL:        { fontSize:11, padding:'2px 7px', borderRadius:20, background:'#FCEBEB', color:'#A32D2D' },
-  outcomeBadge: { display:'inline-block', padding:'2px 9px', borderRadius:20, fontSize:11, fontWeight:500 },
-  editBtn:      { fontSize:13, background:'transparent', border:'0.5px solid var(--border)',
-                  borderRadius:6, padding:'2px 8px', cursor:'pointer', color:'var(--text-secondary)' },
-  pageBtn:      { padding:'3px 10px', border:'0.5px solid var(--border)', borderRadius:6,
-                  fontSize:12, cursor:'pointer', background:'transparent', color:'var(--text-secondary)' },
-  pageBtnActive:{ padding:'3px 10px', border:'0.5px solid #1D9E75', borderRadius:6,
-                  fontSize:12, cursor:'pointer', background:'transparent', color:'#0F6E56' },
-
-  // Outcome panel
-  panelCell:    { padding:0, background:'var(--bg-surface)', borderBottom:'0.5px solid var(--border)' },
-  panel:        { padding:'14px 16px', borderLeft:'3px solid #1D9E75' },
-  panelTitle:   { fontSize:13, fontWeight:600, color:'var(--text-primary)', marginBottom:10,
-                  display:'flex', alignItems:'baseline', gap:10 },
-  panelSub:     { fontSize:11, color:'var(--text-hint)', fontWeight:400 },
-  panelBody:    { display:'flex', gap:16, alignItems:'flex-start', flexWrap:'wrap' },
-  panelField:   { display:'flex', flexDirection:'column', gap:5 },
-  panelLabel:   { fontSize:11, fontWeight:600, color:'var(--text-secondary)',
-                  textTransform:'uppercase', letterSpacing:'0.05em' },
+  metricRow:     { display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:10, marginBottom:16 },
+  metricCard:    { background:'var(--bg-card)', border:'0.5px solid var(--border)', borderRadius:12, padding:'12px 14px' },
+  card:          { background:'var(--bg-card)', border:'0.5px solid var(--border)', borderRadius:12, padding:'14px 16px' },
+  cardTitle:     { fontSize:13, fontWeight:500, color:'var(--text-primary)' },
+  searchBar:     { width:'100%', padding:'8px 12px', border:'0.5px solid var(--border)', borderRadius:8,
+                   fontSize:13, boxSizing:'border-box', marginBottom:10,
+                   background:'var(--bg-input)', color:'var(--text-primary)', outline:'none',
+                   WebkitTextFillColor:'var(--text-primary)' },
+  filterRow:     { display:'flex', gap:6, flexWrap:'wrap', marginBottom:12 },
+  filterBtn:     { padding:'4px 12px', borderRadius:20, fontSize:12, border:'0.5px solid var(--border)',
+                   color:'var(--text-secondary)', background:'transparent', cursor:'pointer' },
+  filterSel:     { padding:'4px 12px', borderRadius:20, fontSize:12, border:'0.5px solid #9FE1CB',
+                   color:'#0F6E56', background:'#E1F5EE', cursor:'pointer' },
+  exportBtn:     { fontSize:12, color:'#0F6E56', border:'0.5px solid #9FE1CB', borderRadius:20,
+                   padding:'4px 12px', background:'#E1F5EE', cursor:'pointer' },
+  empty:         { fontSize:13, color:'var(--text-hint)', padding:'24px 0', textAlign:'center' },
+  tbl:           { width:'100%', borderCollapse:'collapse', fontSize:12 },
+  th:            { textAlign:'left', fontSize:11, color:'var(--text-hint)', fontWeight:500,
+                   padding:'6px 10px', borderBottom:'0.5px solid var(--border)', whiteSpace:'nowrap' },
+  td:            { padding:'8px 10px', borderBottom:'0.5px solid var(--border)',
+                   color:'var(--text-primary)', whiteSpace:'nowrap', verticalAlign:'middle' },
+  tagC:          { display:'inline-block', padding:'2px 8px', borderRadius:20, fontSize:11, background:'#FCEBEB', color:'#A32D2D' },
+  tagNC:         { display:'inline-block', padding:'2px 8px', borderRadius:20, fontSize:11, background:'#E1F5EE', color:'#0F6E56' },
+  confH:         { fontSize:11, padding:'2px 7px', borderRadius:20, background:'#E1F5EE', color:'#0F6E56' },
+  confM:         { fontSize:11, padding:'2px 7px', borderRadius:20, background:'#FAEEDA', color:'#633806' },
+  confL:         { fontSize:11, padding:'2px 7px', borderRadius:20, background:'#FCEBEB', color:'#A32D2D' },
+  outcomeBadge:  { display:'inline-block', padding:'2px 9px', borderRadius:20, fontSize:11, fontWeight:500 },
+  editBtn:       { fontSize:13, background:'transparent', border:'0.5px solid var(--border)',
+                   borderRadius:6, padding:'2px 8px', cursor:'pointer', color:'var(--text-secondary)' },
+  pageBtn:       { padding:'3px 10px', border:'0.5px solid var(--border)', borderRadius:6,
+                   fontSize:12, cursor:'pointer', background:'transparent', color:'var(--text-secondary)' },
+  pageBtnActive: { padding:'3px 10px', border:'0.5px solid #1D9E75', borderRadius:6,
+                   fontSize:12, cursor:'pointer', background:'transparent', color:'#0F6E56' },
+  panelCell:     { padding:0, background:'var(--bg-surface)', borderBottom:'0.5px solid var(--border)' },
+  panel:         { padding:'14px 16px', borderLeft:'3px solid #1D9E75' },
+  panelTitle:    { fontSize:13, fontWeight:600, color:'var(--text-primary)', marginBottom:10,
+                   display:'flex', alignItems:'baseline', gap:10 },
+  panelSub:      { fontSize:11, color:'var(--text-hint)', fontWeight:400 },
+  panelBody:     { display:'flex', gap:16, alignItems:'flex-start', flexWrap:'wrap' },
+  panelField:    { display:'flex', flexDirection:'column', gap:5 },
+  panelLabel:    { fontSize:11, fontWeight:600, color:'var(--text-secondary)',
+                   textTransform:'uppercase', letterSpacing:'0.05em' },
   outcomeOptions:{ display:'flex', gap:6, flexWrap:'wrap' },
-  outcomeOpt:   { fontSize:12, padding:'4px 12px', borderRadius:20, cursor:'pointer',
-                  fontFamily:'inherit', transition:'all 0.15s' },
-  noteArea:     { fontSize:12, padding:'7px 10px', border:'0.5px solid var(--border)',
-                  borderRadius:8, background:'var(--bg-input)', color:'var(--text-primary)',
-                  fontFamily:'inherit', outline:'none', resize:'vertical', minWidth:260,
-                  WebkitTextFillColor:'var(--text-primary)' },
-  saveBtn:      { padding:'7px 18px', background:'#1D9E75', color:'#fff', border:'none',
-                  borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'inherit',
-                  alignSelf:'flex-end', marginTop:18 },
+  outcomeOpt:    { fontSize:12, padding:'4px 12px', borderRadius:20, cursor:'pointer',
+                   fontFamily:'inherit', transition:'all 0.15s' },
+  noteArea:      { fontSize:12, padding:'7px 10px', border:'0.5px solid var(--border)',
+                   borderRadius:8, background:'var(--bg-input)', color:'var(--text-primary)',
+                   fontFamily:'inherit', outline:'none', resize:'vertical', minWidth:260,
+                   WebkitTextFillColor:'var(--text-primary)' },
+  saveBtn:       { padding:'7px 18px', background:'#1D9E75', color:'#fff', border:'none',
+                   borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'inherit' },
 };

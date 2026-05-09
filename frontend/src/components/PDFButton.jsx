@@ -97,20 +97,20 @@ function Spinner() {
 // ── Styles ─────────────────────────────────────────────────────────────────────
 
 const btnBase = {
-  width:       '100%',
-  padding:     '9px 14px',
-  background:  '#1e293b',
-  color:       '#e2e8f0',
-  border:      '0.5px solid #334155',
-  borderRadius: 8,
-  fontSize:    13,
-  fontFamily:  'inherit',
-  cursor:      'pointer',
-  marginTop:   8,
-  display:     'flex',
-  alignItems:  'center',
+  width:          '100%',
+  padding:        '9px 14px',
+  background:     '#1e293b',
+  color:          '#e2e8f0',
+  border:         '0.5px solid #334155',
+  borderRadius:   8,
+  fontSize:       13,
+  fontFamily:     'inherit',
+  cursor:         'pointer',
+  marginTop:      8,
+  display:        'flex',
+  alignItems:     'center',
   justifyContent: 'center',
-  transition:  'background 0.2s, color 0.2s',
+  transition:     'background 0.2s, color 0.2s',
 };
 
 const btnLoading = {
@@ -126,6 +126,6 @@ const btnDone = {
 };
 
 const btnDisabled = {
-  opacity:    0.4,
-  cursor:     'not-allowed',
+  opacity: 0.4,
+  cursor:  'not-allowed',
 };
