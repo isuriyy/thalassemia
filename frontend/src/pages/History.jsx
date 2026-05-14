@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import Layout from '../components/Layout';
 import api    from '../api/api';
 import { generateReferralLetter } from '../components/generateReferralLetter';
+import { getSettings } from '../utils/settings';
 
 const OUTCOMES = ['Pending', 'Confirmed Carrier', 'Not Confirmed', 'Lost to Follow-up'];
 
@@ -13,6 +14,8 @@ const OUTCOME_STYLE = {
 };
 
 export default function History() {
+  const _settings = getSettings();
+
   const [records,      setRecords]      = useState([]);
   const [stats,        setStats]        = useState(null);
   const [search,       setSearch]       = useState('');
@@ -120,7 +123,12 @@ export default function History() {
         district:      r.district      || '',
         isPregnant:    r.isPregnant    || false,
         familyHistory: r.familyHistory || false,
-        clinicianName: 'Dr. Isuri',
+        clinicianName: _settings.clinicianName || 'Medical Officer',
+        designation:   _settings.designation   || '',
+        clinicName:    _settings.clinicName     || '',
+        hospital:      _settings.hospital       || '',
+        mohArea:       _settings.mohArea        || '',
+        unit:          _settings.unit           || '',
       });
     } catch (err) {
       console.error('Referral PDF failed:', err);

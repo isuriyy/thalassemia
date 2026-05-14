@@ -1,40 +1,33 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import Layout from '../components/Layout';
 import api from '../api/api';
 import ProbabilityGauge from '../components/ProbabilityGauge';
 import SHAPChart from '../components/SHAPChart';
 import PDFButton from '../components/PDFButton';
 import { generateReferralLetter } from '../components/generateReferralLetter';
-import {
-  useVoiceInput,
-  parseSpokenValue,
-  parseSpokenPatientDetails,
-  parseSpokenFlags,
-} from '../components/useVoiceInput';
+import { useVoiceWizard } from '../components/useVoiceWizard';
+import { getSettings } from '../utils/settings';
 
 const RANGES = {
-  mcv: { min:40,  max:160, normal:[80, 100], unit:'fL' },
-  mch: { min:10,  max:50,  normal:[27, 33],  unit:'pg' },
-  hbg: { min:3,   max:25,  normal:[12, 17],  unit:'g/dL' },
-  rbc: { min:1,   max:12,  normal:[4,  6],   unit:'×10¹²/L' },
+  mcv: { min:40, max:160, normal:[80,100] },
+  mch: { min:10, max:50,  normal:[27,33]  },
+  hbg: { min:3,  max:25,  normal:[12,17]  },
+  rbc: { min:1,  max:12,  normal:[4,6]    },
 };
 
 const SL_DISTRICTS = [
-  'Ampara','Anuradhapura','Badulla','Batticaloa',
-  'Colombo','Galle','Gampaha','Hambantota',
-  'Jaffna','Kalutara','Kandy','Kegalle',
-  'Kilinochchi','Kurunegala','Mannar','Matale',
-  'Matara','Monaragala','Mullaitivu','Nuwara Eliya',
-  'Polonnaruwa','Puttalam','Ratnapura','Trincomalee',
-  'Vavuniya'
+  'Ampara','Anuradhapura','Badulla','Batticaloa','Colombo','Galle',
+  'Gampaha','Hambantota','Jaffna','Kalutara','Kandy','Kegalle',
+  'Kilinochchi','Kurunegala','Mannar','Matale','Matara','Monaragala',
+  'Mullaitivu','Nuwara Eliya','Polonnaruwa','Puttalam','Ratnapura',
+  'Trincomalee','Vavuniya',
 ];
 
 const INIT = { patientId:'', age:'', sex:'Female', mcv:'', mch:'', hbg:'', rbc:'' };
 
 function getRangeStatus(field, val) {
   if (!val) return null;
-  const v = parseFloat(val);
-  const r = RANGES[field];
+  const v = parseFloat(val), r = RANGES[field];
   if (!r) return null;
   if (v < r.min || v > r.max) return 'invalid';
   if (v < r.normal[0]) return 'below';
@@ -49,68 +42,47 @@ function speakResult(result, isCarrier) {
   const text = isCarrier
     ? `Carrier detected. Carrier probability ${pct} percent. Confidence ${result.confidence}. Referral is ${result.referral_recommended ? 'recommended' : 'not required'}.`
     : `Non-carrier. Carrier probability ${pct} percent. Confidence ${result.confidence}. No referral required.`;
-  const utt   = new SpeechSynthesisUtterance(text);
-  utt.lang    = 'en-US';
-  utt.rate    = 0.92;
-  utt.pitch   = 1;
-  utt.volume  = 1;
+  const utt = new SpeechSynthesisUtterance(text);
+  utt.lang = 'en-US'; utt.rate = 0.92;
   window.speechSynthesis.speak(utt);
 }
 
 export default function Screen() {
+  const _settings = getSettings();
+
   const [form,          setForm]          = useState(INIT);
   const [result,        setResult]        = useState(null);
   const [error,         setError]         = useState('');
   const [loading,       setLoading]       = useState(false);
-  const [district,      setDistrict]      = useState('');
+  const [district,      setDistrict]      = useState(_settings.defaultDistrict || '');
   const [isPregnant,    setIsPregnant]    = useState(false);
   const [familyHistory, setFamilyHistory] = useState(false);
   const [refLoading,    setRefLoading]    = useState(false);
   const [refDone,       setRefDone]       = useState(false);
   const [speaking,      setSpeaking]      = useState(false);
-  const [activeField,   setActiveField]   = useState(null);
-  const [voiceHint,     setVoiceHint]     = useState('');
 
   const set = (k, v) => {
     setForm(f => ({ ...f, [k]: v }));
     if (k === 'sex' && v === 'Male') setIsPregnant(false);
   };
-
   const isMale = form.sex === 'Male';
 
-  const handleVoiceResult = useCallback((transcript, fieldHint) => {
-    setVoiceHint(`Heard: "${transcript}"`);
-    setTimeout(() => setVoiceHint(''), 3000);
-
-    if (fieldHint === 'patient') {
-      const d = parseSpokenPatientDetails(transcript);
-      if (d.age) set('age', d.age);
-      if (d.sex) set('sex', d.sex);
-      return;
-    }
-    if (fieldHint === 'flags') {
-      const f = parseSpokenFlags(transcript);
-      if (f.isPregnant    !== undefined) setIsPregnant(f.isPregnant);
-      if (f.familyHistory !== undefined) setFamilyHistory(f.familyHistory);
-      return;
-    }
-    if (fieldHint === 'patientId') { set('patientId', transcript); return; }
-
-    const parsed = parseSpokenValue(transcript, fieldHint);
-    if (parsed !== null && !isNaN(parseFloat(parsed))) {
-      set(fieldHint, parsed);
-    } else {
-      setVoiceHint(`Could not parse "${transcript}" for ${fieldHint.toUpperCase()} — try again`);
-      setTimeout(() => setVoiceHint(''), 4000);
-    }
+  // ── Wizard complete callback ──────────────────────────────────────────────
+  const handleWizardComplete = useCallback((vals) => {
+    if (vals.patientId !== undefined) set('patientId', vals.patientId);
+    if (vals.age       !== undefined) set('age',       vals.age);
+    if (vals.sex       !== undefined) set('sex',       vals.sex);
+    if (vals.mcv       !== undefined) set('mcv',       vals.mcv);
+    if (vals.mch       !== undefined) set('mch',       vals.mch);
+    if (vals.hbg       !== undefined) set('hbg',       vals.hbg);
+    if (vals.rbc       !== undefined) set('rbc',       vals.rbc);
+    if (vals.isPregnant    !== undefined) setIsPregnant(vals.isPregnant);
+    if (vals.familyHistory !== undefined) setFamilyHistory(vals.familyHistory);
   }, []);
 
-  const { listening, supported, error: voiceError, startListening, stopListening } =
-    useVoiceInput(handleVoiceResult);
+  const wizard = useVoiceWizard({ onComplete: handleWizardComplete, isMale });
 
-  const startField = field => { setActiveField(field); startListening(field); };
-  const stopField  = ()    => { stopListening(); setActiveField(null); };
-
+  // ── Submit ────────────────────────────────────────────────────────────────
   const submit = async e => {
     e.preventDefault();
     setLoading(true); setError(''); setResult(null);
@@ -141,7 +113,13 @@ export default function Screen() {
       await generateReferralLetter({
         result, form, district,
         isPregnant: isMale ? false : isPregnant,
-        familyHistory, clinicianName: 'Dr. Isuri',
+        familyHistory,
+        clinicianName: _settings.clinicianName || 'Medical Officer',
+        designation:   _settings.designation   || '',
+        clinicName:    _settings.clinicName     || '',
+        hospital:      _settings.hospital       || '',
+        mohArea:       _settings.mohArea        || '',
+        unit:          _settings.unit           || '',
       });
       setRefDone(true);
       setTimeout(() => setRefDone(false), 3000);
@@ -161,62 +139,143 @@ export default function Screen() {
 
   const isCarrier = result?.prediction === 1;
 
+  const statusLabel = {
+    idle:       '',
+    prompting:  'Speaking…',
+    listening:  'Listening…',
+    confirming: 'Confirmed ✓',
+    done:       'Done ✓',
+    error:      'Error',
+  }[wizard.status] || '';
+
   return (
     <Layout>
+      <style>{`
+        .sg { display:grid; grid-template-columns:1fr 1fr; gap:14px; align-items:start; }
+        @media(max-width:959px){ .sg { grid-template-columns:1fr; } }
+        .cg { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+        @media(max-width:600px){ .cg { grid-template-columns:1fr 1fr; } }
+        .pg { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+        @media(max-width:480px){ .pg { grid-template-columns:1fr; } }
+        .ig { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+        @media(max-width:480px){ .ig { grid-template-columns:1fr; } }
+        .ra { display:flex; flex-direction:column; gap:6px; margin-top:6px; }
+        @keyframes vp{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.3;transform:scale(1.6)}}
+        @keyframes ripple{0%{box-shadow:0 0 0 0 rgba(226,75,74,.5)}100%{box-shadow:0 0 0 12px rgba(226,75,74,0)}}
+        @keyframes spin{to{transform:rotate(360deg)}}
+      `}</style>
 
-      {/* ── Voice status bar ── */}
-      {supported && (listening || voiceHint || voiceError) && (
-        <div style={s.voiceBar}>
-          {listening && (
-            <span style={s.voiceLive}>
-              <PulsingDot />
-              Listening for {activeField === 'patient' ? 'patient details'
-                : activeField === 'flags' ? 'clinical flags'
-                : activeField?.toUpperCase() || 'input'}…
-            </span>
-          )}
-          {voiceHint && !listening && <span style={s.voiceHintTxt}>✓ {voiceHint}</span>}
-          {voiceError && <span style={s.voiceErrTxt}>⚠ {voiceError}</span>}
-          {listening && (
-            <button style={s.voiceStopBtn} onClick={stopField}>Stop</button>
-          )}
+      {/* ══ VOICE WIZARD OVERLAY ══ */}
+      {wizard.isActive && (
+        <div style={s.wizardOverlay}>
+          <div style={s.wizardCard}>
+
+            <div style={s.wizardHeader}>
+              <div style={s.wizardTitle}>Voice Entry</div>
+              <button style={s.wizardClose} onClick={wizard.cancel} title="Cancel">✕</button>
+            </div>
+
+            <div style={s.progressTrack}>
+              <div style={{ ...s.progressFill, width:`${wizard.progress}%` }} />
+            </div>
+            <div style={s.progressLabel}>
+              Step {wizard.stepIndex + 1} of {wizard.stepCount} — {wizard.step?.label}
+            </div>
+
+            <div style={s.micVisual}>
+              <div style={{
+                ...s.micRing,
+                animation: wizard.status === 'listening' ? 'ripple 1s ease-out infinite' : 'none',
+                borderColor: wizard.status === 'listening' ? '#E24B4A'
+                           : wizard.status === 'confirming' ? '#1D9E75' : '#334155',
+              }}>
+                <div style={{
+                  ...s.micCore,
+                  background: wizard.status === 'listening' ? '#E24B4A'
+                             : wizard.status === 'confirming' ? '#1D9E75' : '#334155',
+                }}>
+                  {wizard.status === 'prompting'  && <SpeakerSVG />}
+                  {wizard.status === 'listening'  && <MicSVG />}
+                  {wizard.status === 'confirming' && <CheckSVG />}
+                </div>
+              </div>
+            </div>
+
+            <div style={s.wizardStatus}>
+              <span style={{
+                color: wizard.status === 'listening'  ? '#E24B4A'
+                     : wizard.status === 'confirming' ? '#1D9E75' : 'var(--text-2)',
+                fontWeight: 600, fontSize:13,
+              }}>
+                {statusLabel}
+              </span>
+            </div>
+
+            <div style={s.wizardPrompt}>
+              {wizard.status === 'prompting'  && `"${wizard.step?.prompt}"`}
+              {wizard.status === 'listening'  && 'Speak now…'}
+              {wizard.status === 'confirming' && wizard.transcript && `Heard: "${wizard.transcript}"`}
+            </div>
+
+            <div style={s.wizardValues}>
+              {Object.entries(wizard.values).map(([k, v]) => (
+                <div key={k} style={s.wizardVal}>
+                  <span style={s.wizardValKey}>{k}</span>
+                  <span style={s.wizardValV}>{String(v) || '—'}</span>
+                </div>
+              ))}
+            </div>
+
+            <button style={s.wizardCancelBtn} onClick={wizard.cancel}>
+              Cancel voice entry
+            </button>
+          </div>
         </div>
       )}
 
-      <div style={s.twoCol}>
+      <div className="sg">
 
-        {/* ── LEFT — FORM ── */}
+        {/* ════ LEFT — FORM ════ */}
         <div>
           <div style={s.card}>
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
-              <div style={s.cardTitle}>Patient information</div>
-              {supported && (
-                <button type="button" style={s.micGroupBtn}
-                  onClick={() => listening && activeField==='patient' ? stopField() : startField('patient')}
-                  title="Say age and sex, e.g. 'thirty five female'">
-                  <MicIcon active={listening && activeField==='patient'} />
-                  <span style={{ fontSize:10, marginLeft:5 }}>
-                    {listening && activeField==='patient' ? 'Stop' : 'Dictate patient'}
+
+            <div style={s.cardHead}>
+              <span style={s.sectionTitle}>Patient information</span>
+              {wizard.supported ? (
+                <button
+                  type="button"
+                  style={s.voiceStartBtn}
+                  onClick={wizard.isActive ? wizard.cancel : wizard.start}
+                  title="Start guided voice entry"
+                >
+                  <MicSVG size={14} color="#fff" />
+                  <span style={{ marginLeft:6 }}>
+                    {wizard.isActive ? 'Cancel voice' : 'Voice entry'}
                   </span>
                 </button>
+              ) : (
+                <span style={s.voiceUnsupported}>Chrome/Edge only</span>
               )}
             </div>
 
+            {wizard.status === 'error' && (
+              <div style={s.voiceErr}>⚠ {wizard.errorMsg}</div>
+            )}
+            {wizard.status === 'done' && (
+              <div style={s.voiceDone}>
+                ✓ Voice entry complete — review values below and click Run
+              </div>
+            )}
+
             <form onSubmit={submit}>
-              <div style={s.grid2}>
-                <VoiceField label="Patient ID" hint="optional" value={form.patientId}
-                  onChange={v => set('patientId', v)}
-                  field="patientId" supported={supported}
-                  listening={listening && activeField==='patientId'}
-                  onMic={() => listening && activeField==='patientId' ? stopField() : startField('patientId')} />
-                <VoiceField label="Age (years)" type="number" value={form.age}
-                  onChange={v => set('age', v)} required min="1" max="100"
-                  field="age" supported={supported}
-                  listening={listening && activeField==='age'}
-                  onMic={() => listening && activeField==='age' ? stopField() : startField('age')} />
+              <div className="pg">
+                <Field label="Patient ID" hint="optional" value={form.patientId}
+                  onChange={v => set('patientId', v)} />
+                <Field label="Age (years)" type="number" value={form.age}
+                  onChange={v => set('age', v)} required min="1" max="100" />
               </div>
 
-              <div style={{ marginBottom:14 }}>
+              <div style={s.fieldWrap}>
                 <label style={s.label}>Sex *</label>
                 <select style={s.select} value={form.sex} onChange={e => set('sex', e.target.value)}>
                   <option>Female</option>
@@ -224,7 +283,7 @@ export default function Screen() {
                 </select>
               </div>
 
-              <div style={{ marginBottom:14 }}>
+              <div style={s.fieldWrap}>
                 <label style={s.label}>District <span style={s.optHint}>(optional)</span></label>
                 <select style={s.select} value={district} onChange={e => setDistrict(e.target.value)}>
                   <option value="">Select district</option>
@@ -234,25 +293,12 @@ export default function Screen() {
 
               {!isMale && (
                 <div style={s.checkGroup}>
-                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-                    <label style={s.checkLabel}>
-                      <input type="checkbox" checked={isPregnant}
-                        onChange={e => setIsPregnant(e.target.checked)} style={s.checkbox} />
-                      <span style={s.checkText}>Pregnant patient</span>
-                    </label>
-                    {supported && (
-                      <button type="button" style={s.micTiny}
-                        onClick={() => listening && activeField==='flags' ? stopField() : startField('flags')}
-                        title="Say 'pregnant' or 'family history'">
-                        <MicIcon active={listening && activeField==='flags'} size={11} />
-                      </button>
-                    )}
-                  </div>
-                  {isPregnant && (
-                    <div style={s.clinWarn}>
-                      ⚠️ Antenatal patient — referral will be automatic per MOH guidelines
-                    </div>
-                  )}
+                  <label style={s.checkLabel}>
+                    <input type="checkbox" checked={isPregnant}
+                      onChange={e => setIsPregnant(e.target.checked)} style={s.checkbox} />
+                    <span style={s.checkText}>Pregnant patient</span>
+                  </label>
+                  {isPregnant && <div style={s.clinWarn}>⚠️ Antenatal — referral automatic per MOH guidelines</div>}
                 </div>
               )}
 
@@ -262,44 +308,26 @@ export default function Screen() {
                     onChange={e => setFamilyHistory(e.target.checked)} style={s.checkbox} />
                   <span style={s.checkText}>Family history of thalassemia</span>
                 </label>
-                {familyHistory && (
-                  <div style={s.clinWarn}>
-                    ⚠️ Family history is a significant clinical risk factor
-                  </div>
-                )}
+                {familyHistory && <div style={s.clinWarn}>⚠️ Significant clinical risk factor</div>}
               </div>
 
-              <div style={{ ...s.cardTitle, marginTop:8, borderTop:'0.5px solid var(--border)', paddingTop:12 }}>
-                CBC parameters <span style={{ fontWeight:400, color:'var(--text-3)', fontSize:11 }}>* required</span>
+              <div style={s.cbcHead}>
+                CBC parameters
+                <span style={{ fontWeight:400, color:'var(--text-3)', fontSize:11, marginLeft:6 }}>* required</span>
               </div>
 
-              <div style={s.grid3}>
+              <div className="cg">
                 {['mcv','mch','hbg'].map(f => (
-                  <VoiceRangeField key={f} field={f} value={form[f]} onChange={v => set(f, v)}
-                    supported={supported}
-                    listening={listening && activeField===f}
-                    onMic={() => listening && activeField===f ? stopField() : startField(f)} />
+                  <RangeField key={f} field={f} value={form[f]} onChange={v => set(f, v)} />
                 ))}
               </div>
 
-              <div style={{ fontSize:11, color:'var(--text-3)', margin:'8px 0 6px',
-                borderTop:'0.5px solid var(--border)', paddingTop:8 }}>
-                RBC (×10¹²/L) — optional · supplementary indices only
-              </div>
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 2fr', gap:8 }}>
-                <VoiceField field="rbc" label="RBC" hint="1.0–12.0" type="number"
-                  value={form.rbc} onChange={v => set('rbc', v)}
-                  supported={supported}
-                  listening={listening && activeField==='rbc'}
-                  onMic={() => listening && activeField==='rbc' ? stopField() : startField('rbc')}
+              <div style={s.rbcHint}>RBC (×10¹²/L) — optional · supplementary indices only</div>
+              <div style={{ maxWidth:160 }}>
+                <Field label="RBC" hint="1.0–12.0" type="number" value={form.rbc}
+                  onChange={v => set('rbc', v)}
                   extraStyle={{ border:'0.5px dashed var(--border)' }} />
               </div>
-
-              {!supported && (
-                <div style={s.noVoice}>
-                  🎤 Voice input requires Chrome or Edge — not available in this browser
-                </div>
-              )}
 
               {error && <div style={s.err}>{error}</div>}
               <button style={s.primaryBtn} disabled={loading}>
@@ -309,10 +337,10 @@ export default function Screen() {
           </div>
         </div>
 
-        {/* ── RIGHT — RESULT ── */}
+        {/* ════ RIGHT — RESULT ════ */}
         <div>
           <div style={s.card}>
-            <div style={s.cardTitle}>Prediction result</div>
+            <div style={{ ...s.sectionTitle, marginBottom:12 }}>Prediction result</div>
             {!result ? (
               <div style={s.empty}>Enter CBC values and click Run to see the prediction</div>
             ) : (
@@ -342,56 +370,53 @@ export default function Screen() {
                   </div>
                 )}
 
-                <div style={s.flagRow}>
-                  {isPregnant && !isMale && <span style={s.flagAmber}>🤰 Antenatal — Auto Referral</span>}
-                  {familyHistory && <span style={s.flagAmber}>⚠️ Family History</span>}
-                  {district && <span style={s.flagNeutral}>📍 {district}</span>}
+                <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginTop:10 }}>
+                  {isPregnant && !isMale && <span style={s.flagA}>🤰 Antenatal — Auto Referral</span>}
+                  {familyHistory          && <span style={s.flagA}>⚠️ Family History</span>}
+                  {district               && <span style={s.flagN}>📍 {district}</span>}
                 </div>
 
                 <div style={s.note}>{result.clinical_note}</div>
 
-                {/* ── Read result aloud ── */}
-                <button
-                  style={{ ...s.speakBtn, ...(speaking ? s.speakBtnOn : {}) }}
-                  onClick={handleSpeak}
-                  title="Read prediction aloud"
-                >
-                  <SpeakerIcon active={speaking} />
-                  {speaking ? 'Stop reading' : 'Read result aloud'}
-                </button>
-
-                <button style={s.printBtn} onClick={() => window.print()}>Print result</button>
-
-                <PDFButton result={result} form={form} district={district}
-                  isPregnant={isMale ? false : isPregnant}
-                  familyHistory={familyHistory} clinicianName="Dr. Isuri" />
-
-                {(result.referral_recommended || (isPregnant && !isMale)) && (
-                  <button onClick={handleReferral} disabled={refLoading} style={{
-                    width:'100%', padding:'9px 14px', marginTop:6,
-                    background: refDone ? '#064E3B' : '#FFFBEB',
-                    color:      refDone ? '#6EE7B7' : '#92400E',
-                    border:     `0.5px solid ${refDone ? '#059669' : '#FAC775'}`,
-                    borderRadius:8, fontSize:13,
-                    cursor: refLoading ? 'wait' : 'pointer',
-                    fontFamily:'inherit', display:'flex',
-                    alignItems:'center', justifyContent:'center', gap:6,
-                    opacity: refLoading ? 0.6 : 1, transition:'background 0.2s, color 0.2s',
-                  }}>
-                    {refLoading ? '⏳ Generating Referral…' : refDone ? '✓ Referral Letter Downloaded' : '📋 Download MOH Referral Letter'}
+                <div className="ra">
+                  <button style={{ ...s.speakBtn, ...(speaking ? s.speakBtnOn : {}) }} onClick={handleSpeak}>
+                    <SpeakerSVG size={13} color={speaking ? '#0F6E56' : 'currentColor'} />
+                    <span style={{ marginLeft:6 }}>{speaking ? 'Stop reading' : 'Read result aloud'}</span>
                   </button>
-                )}
+
+                  <button style={s.printBtn} onClick={() => window.print()}>Print result</button>
+
+                  <PDFButton result={result} form={form} district={district}
+                    isPregnant={isMale ? false : isPregnant}
+                    familyHistory={familyHistory}
+                    clinicianName={_settings.clinicianName || 'Medical Officer'} />
+
+                  {(result.referral_recommended || (isPregnant && !isMale)) && (
+                    <button onClick={handleReferral} disabled={refLoading} style={{
+                      width:'100%', padding:'9px 14px',
+                      background: refDone ? '#064E3B' : '#FFFBEB',
+                      color:      refDone ? '#6EE7B7' : '#92400E',
+                      border:     `0.5px solid ${refDone ? '#059669' : '#FAC775'}`,
+                      borderRadius:8, fontSize:13, cursor: refLoading ? 'wait' : 'pointer',
+                      fontFamily:'inherit', display:'flex', alignItems:'center',
+                      justifyContent:'center', gap:6,
+                      opacity: refLoading ? 0.6 : 1, transition:'background 0.2s',
+                    }}>
+                      {refLoading ? '⏳ Generating…' : refDone ? '✓ Downloaded' : '📋 Download MOH Referral Letter'}
+                    </button>
+                  )}
+                </div>
               </>
             )}
           </div>
 
           <div style={s.card}>
-            <div style={s.cardTitle}>Derived hematological indices</div>
+            <div style={{ ...s.sectionTitle, marginBottom:10 }}>Derived hematological indices</div>
             {!result ? (
               <div style={{ ...s.empty, padding:'12px 0' }}>Awaiting input</div>
             ) : (
               <>
-                <div style={s.idxGrid}>
+                <div className="ig">
                   {Object.entries(result.derived_features || {}).map(([k,v]) => (
                     <div key={k} style={s.idxCard}>
                       <div style={s.idxName}>{k.replace(/_/g,' ')}</div>
@@ -399,12 +424,12 @@ export default function Screen() {
                     </div>
                   ))}
                 </div>
-                {result.supplementary_indices && (
+                {result.supplementary_indices && Object.keys(result.supplementary_indices).length > 0 && (
                   <>
                     <div style={{ fontSize:11, color:'var(--text-3)', margin:'8px 0 4px' }}>
                       Supplementary — RBC provided
                     </div>
-                    <div style={s.idxGrid}>
+                    <div className="ig">
                       {Object.entries(result.supplementary_indices).map(([k,v]) => (
                         <div key={k} style={{ ...s.idxCard, border:'0.5px dashed var(--border)' }}>
                           <div style={s.idxName}>{k.replace(/_/g,' ')}</div>
@@ -418,8 +443,7 @@ export default function Screen() {
             )}
           </div>
 
-          {result && result.shap_contributions &&
-            Object.keys(result.shap_contributions).length > 0 && (
+          {result?.shap_contributions && Object.keys(result.shap_contributions).length > 0 && (
             <div style={s.card}>
               <SHAPChart contributions={result.shap_contributions} isCarrier={isCarrier} />
             </div>
@@ -430,21 +454,14 @@ export default function Screen() {
   );
 }
 
-// ── Icon components ────────────────────────────────────────────────────────────
+// ── SVG icons ──────────────────────────────────────────────────────────────────
 
-function MicIcon({ active=false, size=13 }) {
+function MicSVG({ size=16, color='currentColor' }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-      stroke={active ? '#E24B4A' : 'currentColor'} strokeWidth="2"
-      strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign:'middle', flexShrink:0 }}>
-      {active && (
-        <circle cx="12" cy="12" r="10" stroke="#E24B4A" strokeWidth="1" strokeOpacity="0.4" fill="none">
-          <animate attributeName="r" from="8" to="11" dur="0.9s" repeatCount="indefinite" />
-          <animate attributeName="stroke-opacity" from="0.6" to="0" dur="0.9s" repeatCount="indefinite" />
-        </circle>
-      )}
-      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"
-        fill={active ? '#E24B4A' : 'none'} />
+      stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+      style={{ verticalAlign:'middle', flexShrink:0 }}>
+      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" fill={color} fillOpacity="0.15" />
       <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
       <line x1="12" y1="19" x2="12" y2="23" />
       <line x1="8"  y1="23" x2="16" y2="23" />
@@ -452,62 +469,42 @@ function MicIcon({ active=false, size=13 }) {
   );
 }
 
-function SpeakerIcon({ active=false }) {
+function SpeakerSVG({ size=16, color='currentColor' }) {
   return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-      stroke={active ? '#0F6E56' : 'currentColor'} strokeWidth="2"
-      strokeLinecap="round" strokeLinejoin="round"
-      style={{ marginRight:6, verticalAlign:'middle' }}>
-      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"
-        fill={active ? '#1D9E75' : 'none'} stroke={active ? '#0F6E56' : 'currentColor'} />
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+      style={{ verticalAlign:'middle', flexShrink:0 }}>
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill={color} fillOpacity="0.15" />
       <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-      {active && <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />}
+      <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
     </svg>
   );
 }
 
-function PulsingDot() {
+function CheckSVG({ size=20 }) {
   return (
-    <>
-      <style>{`@keyframes vp{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(1.5)}}`}</style>
-      <span style={{
-        display:'inline-block', width:8, height:8, borderRadius:'50%',
-        background:'#E24B4A', marginRight:6, verticalAlign:'middle',
-        animation:'vp 0.9s ease-in-out infinite',
-      }} />
-    </>
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
   );
 }
 
-// ── Field wrappers ─────────────────────────────────────────────────────────────
+// ── Field components ───────────────────────────────────────────────────────────
 
-function VoiceField({ label, hint, value, onChange, type='text', required,
-  extraStyle={}, field, supported, listening, onMic, ...rest }) {
+function Field({ label, hint, value, onChange, type='text', required, extraStyle={}, ...rest }) {
   return (
     <div style={{ marginBottom:10 }}>
       <label style={s.label}>
         {label}{hint && <span style={{ color:'var(--text-3)', fontWeight:400 }}> ({hint})</span>}
       </label>
-      <div style={{ display:'flex' }}>
-        <input
-          style={{ ...inp, ...extraStyle, borderRadius: supported ? '8px 0 0 8px' : 8, borderRight: supported ? 'none' : undefined }}
-          type={type} value={value}
-          onChange={e => onChange(e.target.value)}
-          required={required} {...rest}
-        />
-        {supported && (
-          <button type="button"
-            style={{ ...s.micBtn, ...(listening ? s.micBtnOn : {}) }}
-            onClick={onMic} title={`Dictate ${label}`}>
-            <MicIcon active={listening} size={12} />
-          </button>
-        )}
-      </div>
+      <input style={{ ...inp, ...extraStyle }} type={type} value={value}
+        onChange={e => onChange(e.target.value)} required={required} {...rest} />
     </div>
   );
 }
 
-function VoiceRangeField({ field, value, onChange, supported, listening, onMic }) {
+function RangeField({ field, value, onChange }) {
   const r      = RANGES[field];
   const status = getRangeStatus(field, value);
   const labels = { mcv:'MCV (fL)', mch:'MCH (pg)', hbg:'HBG (g/dL)' };
@@ -517,27 +514,15 @@ function VoiceRangeField({ field, value, onChange, supported, listening, onMic }
       <div style={{ fontSize:10, color:'var(--text-3)', marginBottom:3 }}>
         normal {r.normal[0]}–{r.normal[1]}
       </div>
-      <div style={{ display:'flex' }}>
-        <input
-          style={{
-            ...inp,
-            borderRadius: supported ? '8px 0 0 8px' : 8,
-            borderRight:  supported ? 'none' : undefined,
-            ...(status==='below'||status==='above' ? { background:'#FFFBEB', borderColor:'#FAC775', color:'#1a1a1a', WebkitTextFillColor:'#1a1a1a' } : {}),
-            ...(status==='invalid'                 ? { background:'#fef2f2', borderColor:'#fca5a5', color:'#1a1a1a', WebkitTextFillColor:'#1a1a1a' } : {}),
-          }}
-          type="number" value={value} step="0.1"
-          min={r.min} max={r.max}
-          onChange={e => onChange(e.target.value)} required
-        />
-        {supported && (
-          <button type="button"
-            style={{ ...s.micBtn, ...(listening ? s.micBtnOn : {}) }}
-            onClick={onMic} title={`Dictate ${labels[field]}`}>
-            <MicIcon active={listening} size={12} />
-          </button>
-        )}
-      </div>
+      <input
+        style={{
+          ...inp,
+          ...(status==='below'||status==='above' ? { background:'#FFFBEB', borderColor:'#FAC775', color:'#1a1a1a', WebkitTextFillColor:'#1a1a1a' } : {}),
+          ...(status==='invalid'                 ? { background:'#fef2f2', borderColor:'#fca5a5', color:'#1a1a1a', WebkitTextFillColor:'#1a1a1a' } : {}),
+        }}
+        type="number" value={value} step="0.1" min={r.min} max={r.max}
+        onChange={e => onChange(e.target.value)} required
+      />
       {status==='below'   && <div style={s.warnTxt}>⚠ below normal range</div>}
       {status==='above'   && <div style={s.warnTxt}>⚠ above normal range</div>}
       {status==='invalid' && <div style={{ ...s.warnTxt, color:'#b91c1c' }}>✗ outside physiological range</div>}
@@ -548,11 +533,13 @@ function VoiceRangeField({ field, value, onChange, supported, listening, onMic }
 function ProbBar({ label, value, color }) {
   return (
     <div style={{ marginTop:8 }}>
-      <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'var(--text-2)', marginBottom:3 }}>
+      <div style={{ display:'flex', justifyContent:'space-between', fontSize:11,
+        color:'var(--text-2)', marginBottom:3 }}>
         <span>{label}</span><span>{Math.round(value*100)}%</span>
       </div>
       <div style={{ height:6, background:'var(--border)', borderRadius:3, overflow:'hidden' }}>
-        <div style={{ height:'100%', width:`${value*100}%`, background:color, borderRadius:3, transition:'width 0.5s ease' }} />
+        <div style={{ height:'100%', width:`${value*100}%`, background:color,
+          borderRadius:3, transition:'width 0.5s ease' }} />
       </div>
     </div>
   );
@@ -561,57 +548,83 @@ function ProbBar({ label, value, color }) {
 // ── Styles ─────────────────────────────────────────────────────────────────────
 
 const inp = {
-  flex:1, padding:'7px 10px', border:'0.5px solid var(--border)',
+  width:'100%', padding:'8px 10px', border:'0.5px solid var(--border)',
   borderRadius:8, fontSize:13, boxSizing:'border-box', outline:'none',
   background:'var(--bg-input)', color:'var(--text-primary)',
-  WebkitTextFillColor:'var(--text-primary)', minWidth:0,
+  WebkitTextFillColor:'var(--text-primary)',
 };
 
 const s = {
-  twoCol:       { display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 },
-  card:         { background:'var(--bg-card)', border:'0.5px solid var(--border)', borderRadius:12, padding:'14px 16px', marginBottom:12 },
-  cardTitle:    { fontSize:13, fontWeight:500, color:'var(--text-1)', marginBottom:0 },
-  grid2:        { display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 },
-  grid3:        { display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10 },
+  card:         { background:'var(--bg-card)', border:'0.5px solid var(--border)', borderRadius:12, padding:'16px 18px', marginBottom:12 },
+  cardHead:     { display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14, flexWrap:'wrap', gap:8 },
+  sectionTitle: { fontSize:13, fontWeight:600, color:'var(--text-1)' },
+  cbcHead:      { fontSize:12, fontWeight:600, color:'var(--text-1)', margin:'10px 0 8px', borderTop:'0.5px solid var(--border)', paddingTop:12 },
+  rbcHint:      { fontSize:11, color:'var(--text-3)', margin:'6px 0 4px', borderTop:'0.5px solid var(--border)', paddingTop:8 },
+  fieldWrap:    { marginBottom:14 },
   label:        { fontSize:12, color:'var(--text-2)', display:'block', marginBottom:4, fontWeight:500 },
   optHint:      { color:'var(--text-3)', fontWeight:400 },
-  select:       { width:'100%', padding:'7px 10px', border:'0.5px solid var(--border)', borderRadius:8, fontSize:13, boxSizing:'border-box', background:'var(--bg-input)', color:'var(--text-1)' },
+  select:       { width:'100%', padding:'8px 10px', border:'0.5px solid var(--border)', borderRadius:8, fontSize:13, boxSizing:'border-box', background:'var(--bg-input)', color:'var(--text-1)' },
 
-  // mic styles
-  micBtn:       { padding:'0 9px', background:'var(--bg-input)', border:'0.5px solid var(--border)',
-                  borderLeft:'none', borderRadius:'0 8px 8px 0', cursor:'pointer',
-                  display:'flex', alignItems:'center', color:'var(--text-2)', flexShrink:0 },
-  micBtnOn:     { background:'#FCEBEB', borderColor:'#F7C1C1', color:'#E24B4A' },
-  micGroupBtn:  { display:'flex', alignItems:'center', padding:'4px 10px',
+  voiceStartBtn:{ display:'flex', alignItems:'center', padding:'7px 14px',
+                  background:'#1D9E75', color:'#fff', border:'none',
+                  borderRadius:20, fontSize:12, cursor:'pointer',
+                  fontFamily:'inherit', fontWeight:500, whiteSpace:'nowrap',
+                  transition:'background 0.2s' },
+  voiceUnsupported: { fontSize:11, color:'var(--text-3)' },
+  voiceErr:     { background:'#fef2f2', color:'#b91c1c', borderRadius:8, padding:'8px 12px', fontSize:12, marginBottom:10 },
+  voiceDone:    { background:'#E1F5EE', color:'#0F6E56', border:'0.5px solid #9FE1CB', borderRadius:8, padding:'8px 12px', fontSize:12, marginBottom:10 },
+
+  wizardOverlay:{ position:'fixed', inset:0, background:'rgba(0,0,0,0.7)',
+                  display:'flex', alignItems:'center', justifyContent:'center',
+                  zIndex:1000, padding:20 },
+  wizardCard:   { background:'var(--bg-card)', borderRadius:16, padding:'28px 28px 24px',
+                  width:'100%', maxWidth:420, boxShadow:'0 24px 60px rgba(0,0,0,0.4)' },
+  wizardHeader: { display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 },
+  wizardTitle:  { fontSize:16, fontWeight:700, color:'var(--text-1)' },
+  wizardClose:  { background:'transparent', border:'none', fontSize:18,
+                  color:'var(--text-3)', cursor:'pointer', padding:'0 4px', lineHeight:1 },
+
+  progressTrack:{ height:4, background:'var(--border)', borderRadius:4, marginBottom:6, overflow:'hidden' },
+  progressFill: { height:'100%', background:'#1D9E75', borderRadius:4, transition:'width 0.4s ease' },
+  progressLabel:{ fontSize:11, color:'var(--text-3)', marginBottom:24, textAlign:'center' },
+
+  micVisual:    { display:'flex', justifyContent:'center', marginBottom:16 },
+  micRing:      { width:80, height:80, borderRadius:'50%', border:'2px solid',
+                  display:'flex', alignItems:'center', justifyContent:'center',
+                  transition:'border-color 0.3s' },
+  micCore:      { width:56, height:56, borderRadius:'50%', display:'flex',
+                  alignItems:'center', justifyContent:'center', transition:'background 0.3s' },
+
+  wizardStatus: { textAlign:'center', marginBottom:8, minHeight:20 },
+  wizardPrompt: { textAlign:'center', fontSize:13, color:'var(--text-2)',
+                  minHeight:40, lineHeight:1.6, padding:'0 8px', marginBottom:16 },
+
+  wizardValues: { display:'flex', flexWrap:'wrap', gap:6, marginBottom:20, minHeight:28 },
+  wizardVal:    { display:'flex', gap:4, alignItems:'center', padding:'3px 10px',
                   background:'var(--bg-input)', border:'0.5px solid var(--border)',
-                  borderRadius:20, fontSize:11, cursor:'pointer',
-                  color:'var(--text-2)', fontFamily:'inherit' },
-  micTiny:      { background:'transparent', border:'none', cursor:'pointer',
-                  padding:4, color:'var(--text-2)', display:'flex', alignItems:'center' },
+                  borderRadius:20, fontSize:11 },
+  wizardValKey: { color:'var(--text-3)', textTransform:'uppercase', letterSpacing:'0.04em', fontSize:10 },
+  wizardValV:   { color:'var(--text-1)', fontWeight:600 },
 
-  // voice status bar
-  voiceBar:     { display:'flex', alignItems:'center', gap:10, padding:'7px 14px',
-                  background:'var(--bg-card)', border:'0.5px solid var(--border)',
-                  borderRadius:8, marginBottom:10, fontSize:12 },
-  voiceLive:    { display:'flex', alignItems:'center', color:'#E24B4A', fontWeight:500 },
-  voiceHintTxt: { color:'#0F6E56' },
-  voiceErrTxt:  { color:'#A32D2D' },
-  voiceStopBtn: { marginLeft:'auto', padding:'3px 10px', background:'#FCEBEB',
-                  color:'#A32D2D', border:'0.5px solid #F7C1C1',
-                  borderRadius:6, fontSize:11, cursor:'pointer', fontFamily:'inherit' },
-  noVoice:      { fontSize:11, color:'var(--text-3)', background:'var(--bg-input)',
-                  borderRadius:8, padding:'6px 10px', marginTop:8 },
+  wizardCancelBtn:{ width:'100%', padding:'9px', background:'transparent',
+                    color:'var(--text-3)', border:'0.5px solid var(--border)',
+                    borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'inherit' },
 
   err:          { background:'#fef2f2', color:'#b91c1c', borderRadius:8, padding:'8px 12px', fontSize:12, margin:'8px 0' },
-  primaryBtn:   { width:'100%', padding:10, background:'#1D9E75', color:'#fff', border:'none', borderRadius:8, fontSize:13, cursor:'pointer', marginTop:8, fontFamily:'inherit' },
+  primaryBtn:   { width:'100%', padding:'11px', background:'#1D9E75', color:'#fff',
+                  border:'none', borderRadius:8, fontSize:13, cursor:'pointer',
+                  marginTop:10, fontFamily:'inherit', fontWeight:500 },
   speakBtn:     { width:'100%', padding:'8px 14px', background:'var(--bg-input)',
                   color:'var(--text-2)', border:'0.5px solid var(--border)',
-                  borderRadius:8, fontSize:12, cursor:'pointer', marginTop:8,
-                  fontFamily:'inherit', display:'flex', alignItems:'center',
-                  justifyContent:'center', transition:'background 0.2s' },
+                  borderRadius:8, fontSize:12, cursor:'pointer', fontFamily:'inherit',
+                  display:'flex', alignItems:'center', justifyContent:'center',
+                  transition:'background 0.2s' },
   speakBtnOn:   { background:'#E1F5EE', color:'#0F6E56', border:'0.5px solid #9FE1CB' },
-  printBtn:     { width:'100%', padding:8, background:'#E1F5EE', color:'#0F6E56', border:'0.5px solid #9FE1CB', borderRadius:8, fontSize:12, cursor:'pointer', marginTop:6, fontFamily:'inherit' },
-  empty:        { fontSize:13, color:'var(--text-3)', padding:'20px 0', textAlign:'center' },
+  printBtn:     { width:'100%', padding:'8px 14px', background:'#E1F5EE', color:'#0F6E56',
+                  border:'0.5px solid #9FE1CB', borderRadius:8, fontSize:12,
+                  cursor:'pointer', fontFamily:'inherit' },
+
+  empty:        { fontSize:13, color:'var(--text-3)', padding:'24px 0', textAlign:'center' },
   resultC:      { background:'#FCEBEB', border:'0.5px solid #F7C1C1', borderRadius:10, padding:'12px 14px' },
   resultNC:     { background:'#E1F5EE', border:'0.5px solid #9FE1CB', borderRadius:10, padding:'12px 14px' },
   rlC:          { fontSize:10, color:'#A32D2D', textTransform:'uppercase', letterSpacing:'0.06em' },
@@ -622,11 +635,9 @@ const s = {
   confM:        { fontSize:11, padding:'2px 8px', borderRadius:20, background:'#FAEEDA', color:'#633806' },
   confL:        { fontSize:11, padding:'2px 8px', borderRadius:20, background:'#FCEBEB', color:'#A32D2D' },
   referral:     { background:'#FFFBEB', border:'0.5px solid #FAC775', borderRadius:8, padding:'8px 10px', marginTop:8, fontSize:11, color:'#633806', lineHeight:1.5 },
-  note:         { background:'var(--bg-input)', borderRadius:8, padding:'8px 10px', marginTop:8, fontSize:11, color:'var(--text-2)', lineHeight:1.5 },
-  flagRow:      { display:'flex', gap:8, flexWrap:'wrap', marginTop:10 },
-  flagAmber:    { padding:'3px 10px', borderRadius:20, fontSize:11, fontWeight:500, background:'rgba(245,158,11,0.12)', color:'#92400E', border:'0.5px solid rgba(245,158,11,0.35)' },
-  flagNeutral:  { padding:'3px 10px', borderRadius:20, fontSize:11, fontWeight:500, background:'rgba(99,102,241,0.1)', color:'#6366F1', border:'0.5px solid rgba(99,102,241,0.25)' },
-  idxGrid:      { display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 },
+  note:         { background:'var(--bg-input)', borderRadius:8, padding:'8px 10px', marginTop:8, fontSize:11, color:'var(--text-2)', lineHeight:1.6 },
+  flagA:        { padding:'3px 10px', borderRadius:20, fontSize:11, fontWeight:500, background:'rgba(245,158,11,0.12)', color:'#92400E', border:'0.5px solid rgba(245,158,11,0.35)' },
+  flagN:        { padding:'3px 10px', borderRadius:20, fontSize:11, fontWeight:500, background:'rgba(99,102,241,0.1)', color:'#6366F1', border:'0.5px solid rgba(99,102,241,0.25)' },
   idxCard:      { background:'var(--bg-input)', borderRadius:8, padding:'8px 10px' },
   idxName:      { fontSize:10, color:'var(--text-2)' },
   idxVal:       { fontSize:14, fontWeight:500, color:'var(--text-1)', marginTop:2 },

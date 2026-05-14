@@ -53,6 +53,11 @@ export const generateReferralLetter = async ({
   isPregnant,
   familyHistory,
   clinicianName = 'Medical Officer',
+  designation   = '',
+  clinicName    = 'Thalassemia Screening Unit',
+  hospital      = '',
+  mohArea       = '',
+  unit          = '',
 }) => {
   const doc  = new jsPDF({ orientation:'portrait', unit:'mm', format:'a4' });
   const PW=210, ML=20, MR=20, CW=PW-ML-MR;
@@ -99,11 +104,19 @@ export const generateReferralLetter = async ({
   doc.setFont('helvetica','bold'); doc.setFontSize(7); setColor(doc,C.light);
   doc.text('FROM', ML+4, y+6);
   rule(doc, ML+3, y+8, colW-6, C.border);
+
+  // Name + designation
   doc.setFont('helvetica','bold'); doc.setFontSize(8); setColor(doc,C.dark);
-  doc.text(safe(clinicianName), ML+4, y+14);
+  const nameDesig = safe(clinicianName) + (designation ? `, ${safe(designation)}` : '');
+  doc.text(nameDesig, ML+4, y+14);
+
+  // Clinic / hospital lines
   doc.setFont('helvetica','normal'); doc.setFontSize(7); setColor(doc,C.light);
-  doc.text('Medical Officer', ML+4, y+19);
-  doc.text('Thalassaemia Screening Unit', ML+4, y+24);
+  doc.text(safe(clinicName), ML+4, y+19);
+  let fromLineY = y+24;
+  if (hospital) { doc.text(safe(hospital), ML+4, fromLineY); fromLineY += 5; }
+  if (mohArea)  { doc.text(safe(mohArea),  ML+4, fromLineY); }
+
   doc.text('Facility:', ML+4, y+30);
   dottedLine(doc, ML+20, y+30, colW-24);
 
@@ -187,19 +200,19 @@ export const generateReferralLetter = async ({
   y += 6;
 
   const cbcRows = [
-    ['MCV - Mean Corpuscular Volume',      form.mcv, 'fL',     '80-100 fL',    form.mcv&&parseFloat(form.mcv)<80],
-    ['MCH - Mean Corpuscular Haemoglobin', form.mch, 'pg',     '27-33 pg',     form.mch&&parseFloat(form.mch)<27],
-    ['HBG - Haemoglobin',                  form.hbg, 'g/dL',   '12-17 g/dL',  form.hbg&&parseFloat(form.hbg)<12],
-    ['RBC - Red Blood Cells',              form.rbc, 'x10^12/L','4.0-6.0',     false],
+    ['MCV - Mean Corpuscular Volume',      form.mcv, 'fL',      '80-100 fL',  form.mcv&&parseFloat(form.mcv)<80],
+    ['MCH - Mean Corpuscular Haemoglobin', form.mch, 'pg',      '27-33 pg',   form.mch&&parseFloat(form.mch)<27],
+    ['HBG - Haemoglobin',                  form.hbg, 'g/dL',    '12-17 g/dL', form.hbg&&parseFloat(form.hbg)<12],
+    ['RBC - Red Blood Cells',              form.rbc, 'x10^12/L','4.0-6.0',    false],
   ];
 
-  cbcRows.forEach(([label,val,unit,range,isLow],i) => {
+  cbcRows.forEach(([label,val,cbcUnit,range,isLow],i) => {
     const rowBg = i%2===0 ? C.white : C.bg;
     setFill(doc,rowBg); doc.rect(ML,y,CW,6.5,'F');
     doc.setFont('helvetica','normal'); doc.setFontSize(7); setColor(doc,C.dark);
     doc.text(safe(label), ML+3, y+4.5);
     doc.setFont('helvetica','bold');
-    const dispVal = val ? `${parseFloat(val).toFixed(1)} ${unit}` : 'Not provided';
+    const dispVal = val ? `${parseFloat(val).toFixed(1)} ${cbcUnit}` : 'Not provided';
     setColor(doc, isLow ? C.red : C.dark);
     doc.text(dispVal, ML+50, y+4.5);
     doc.setFont('helvetica','normal'); setColor(doc,C.light);
@@ -346,8 +359,8 @@ export const generateReferralLetter = async ({
     'Haemoglobin electrophoresis (if HPLC unavailable)',
     'Serum ferritin and iron studies to exclude iron deficiency',
     'Peripheral blood film examination',
-    ...(isPregnant     ? ['Partner CBC and HbA2 - urgent for prenatal risk assessment'] : []),
-    ...(familyHistory  ? ['Family member cascade screening recommended'] : []),
+    ...(isPregnant    ? ['Partner CBC and HbA2 - urgent for prenatal risk assessment'] : []),
+    ...(familyHistory ? ['Family member cascade screening recommended'] : []),
   ];
 
   investigations.forEach((inv,i) => {
@@ -369,12 +382,17 @@ export const generateReferralLetter = async ({
   doc.setFont('helvetica','bold'); doc.setFontSize(7.5); setColor(doc,C.dark);
   doc.text('Referring Medical Officer', ML, y);
   y += 5;
+
   doc.setFont('helvetica','normal'); doc.setFontSize(7); setColor(doc,C.dark);
   doc.text(safe(clinicianName), ML, y);
   y += 4;
+
   doc.setFont('helvetica','normal'); doc.setFontSize(6.5); setColor(doc,C.light);
-  doc.text('Medical Officer, Thalassaemia Screening Unit', ML, y);
-  y += 8;
+  if (designation) { doc.text(safe(designation), ML, y); y += 4; }
+  doc.text(safe(clinicName), ML, y); y += 4;
+  if (hospital) { doc.text(safe(hospital), ML, y); y += 4; }
+  if (mohArea)  { doc.text(safe(mohArea),  ML, y); y += 4; }
+
   dottedLine(doc, ML, y, sigColW);
   doc.setFontSize(6); setColor(doc,C.hint);
   doc.text('Signature & Date', ML, y+4);
@@ -412,6 +430,11 @@ export const generateCoupleReferralLetter = async ({
   partnerA,
   partnerB,
   clinicianName = 'Medical Officer',
+  designation   = '',
+  clinicName    = 'Thalassemia Screening Unit',
+  hospital      = '',
+  mohArea       = '',
+  unit          = '',
 }) => {
   const doc  = new jsPDF({ orientation:'portrait', unit:'mm', format:'a4' });
   const PW=210, ML=20, MR=20, CW=PW-ML-MR;
@@ -462,10 +485,18 @@ export const generateCoupleReferralLetter = async ({
   doc.setFont('helvetica','bold'); doc.setFontSize(7); setColor(doc,C.light);
   doc.text('FROM', ML+4, y+6);
   rule(doc, ML+3, y+8, colW-6, C.border);
+
+  // Name + designation
   doc.setFont('helvetica','bold'); doc.setFontSize(8); setColor(doc,C.dark);
-  doc.text(safe(clinicianName), ML+4, y+14);
+  const cNameDesig = safe(clinicianName) + (designation ? `, ${safe(designation)}` : '');
+  doc.text(cNameDesig, ML+4, y+14);
+
   doc.setFont('helvetica','normal'); doc.setFontSize(7); setColor(doc,C.light);
-  doc.text('Medical Officer, Thalassaemia Screening Unit', ML+4, y+19);
+  doc.text(safe(clinicName), ML+4, y+19);
+  let cFromY = y+24;
+  if (hospital) { doc.text(safe(hospital), ML+4, cFromY); cFromY += 5; }
+  if (mohArea)  { doc.text(safe(mohArea),  ML+4, cFromY); }
+
   doc.text('Facility:', ML+4, y+30);
   dottedLine(doc, ML+20, y+30, colW-24);
 
@@ -656,12 +687,17 @@ export const generateCoupleReferralLetter = async ({
   doc.setFont('helvetica','bold'); doc.setFontSize(7.5); setColor(doc,C.dark);
   doc.text('Referring Medical Officer', ML, y);
   y += 5;
+
   doc.setFont('helvetica','normal'); doc.setFontSize(7); setColor(doc,C.dark);
   doc.text(safe(clinicianName), ML, y);
   y += 4;
+
   doc.setFont('helvetica','normal'); doc.setFontSize(6.5); setColor(doc,C.light);
-  doc.text('Medical Officer, Thalassaemia Screening Unit', ML, y);
-  y += 8;
+  if (designation) { doc.text(safe(designation), ML, y); y += 4; }
+  doc.text(safe(clinicName), ML, y); y += 4;
+  if (hospital) { doc.text(safe(hospital), ML, y); y += 4; }
+  if (mohArea)  { doc.text(safe(mohArea),  ML, y); y += 4; }
+
   dottedLine(doc, ML, y, sigW);
   doc.setFontSize(6); setColor(doc,C.hint);
   doc.text('Signature & Date', ML, y+4);

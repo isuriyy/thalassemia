@@ -3,6 +3,7 @@ import Layout       from '../components/Layout';
 import api          from '../api/api';
 import { generateCoupleReport }          from '../components/generateCoupleReport';
 import { generateCoupleReferralLetter }  from '../components/generateReferralLetter';
+import { getSettings } from '../utils/settings';
 
 const RANGES = {
   mcv: { min:40,  max:160, normal:[80, 100], unit:'fL'  },
@@ -46,6 +47,8 @@ const inp = {
 };
 
 export default function Couple() {
+  const _settings = getSettings();
+
   const [a,          setA]          = useState({ ...INIT_PARTNER, sex:'Female' });
   const [b,          setB]          = useState({ ...INIT_PARTNER, sex:'Male'   });
   const [result,     setResult]     = useState(null);
@@ -96,7 +99,8 @@ export default function Couple() {
     setPdfLoading(true); setPdfDone(false);
     try {
       await generateCoupleReport({
-        result, partnerA: a, partnerB: b, clinicianName: 'Dr. Isuri',
+        result, partnerA: a, partnerB: b,
+        clinicianName: _settings.clinicianName || 'Medical Officer',
       });
       setPdfDone(true);
       setTimeout(() => setPdfDone(false), 3000);
@@ -111,7 +115,13 @@ export default function Couple() {
     setRefLoading(true); setRefDone(false);
     try {
       await generateCoupleReferralLetter({
-        result, partnerA: a, partnerB: b, clinicianName: 'Dr. Isuri',
+        result, partnerA: a, partnerB: b,
+        clinicianName: _settings.clinicianName || 'Medical Officer',
+        designation:   _settings.designation   || '',
+        clinicName:    _settings.clinicName     || '',
+        hospital:      _settings.hospital       || '',
+        mohArea:       _settings.mohArea        || '',
+        unit:          _settings.unit           || '',
       });
       setRefDone(true);
       setTimeout(() => setRefDone(false), 3000);
