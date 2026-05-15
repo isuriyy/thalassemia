@@ -1,6 +1,6 @@
 # ThalaPredict
 
-> Machine learning–based beta thalassemia carrier detection system for Sri Lankan primary care.
+> Machine learning–based beta thalassemia carrier detection system from Complete Blood Count Parameters for Sri Lankan primary care.
 
 Built as a final year BSc Computer Science project — University of Plymouth.
 
