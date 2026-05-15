@@ -2,7 +2,7 @@
 
 > Machine learning–based beta thalassemia carrier detection system from Complete Blood Count Parameters for Sri Lankan primary care.
 
-Built as a final year BSc Computer Science project — University of Plymouth.
+Built as a final year Computing project — University of Plymouth.
 
 ---
 
